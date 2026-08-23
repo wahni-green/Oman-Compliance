@@ -86,10 +86,13 @@ A **Reverse Charge Applicable** checkbox is available on Purchase Invoice, next 
 field — for imported services and other reverse-charge supplies where this company must self-account for
 output VAT as the recipient (return box 2).
 
-- Checking it **requires at least one VAT row** on the invoice's Taxes and Charges table before it can be
-  saved. The app does not generate these rows itself — set up a Purchase Taxes and Charges template (or Tax
-  Category) that adds the output-VAT liability line and the offsetting input-VAT-recoverable line, the same
-  way you would configure any other self-accounting tax scenario.
+- Checking it **requires an actual self-accounting pair** on the invoice's Taxes and Charges table before it
+  can be saved: at least one VAT-bearing **"Add"** row (the output VAT liability, as if this company were the
+  supplier) and at least one VAT-bearing **"Deduct"** row (the offsetting input VAT credit), both with a
+  nonzero rate/amount. A single VAT row isn't enough — that's exactly what an ordinary domestic purchase's
+  plain input VAT looks like, not evidence that reverse charge was actually self-accounted. The app does not
+  generate these rows itself — set up a Purchase Taxes and Charges template (or Tax Category) with both rows,
+  the same way you would configure any other self-accounting tax scenario.
 - No automatic detection: the app does not guess this checkbox from the supplier's country or any other
   heuristic, since reverse charge applies specifically to imported *services* — an address-based guess would
   also misfire on imported *goods*, which belong in a different return box (imports of goods, not reverse

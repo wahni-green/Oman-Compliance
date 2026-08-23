@@ -17,17 +17,45 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			validate_reverse_charge(doc)
 
-	def test_reverse_charge_with_tax_rows_is_accepted(self):
+	def test_reverse_charge_with_add_and_deduct_rows_is_accepted(self):
 		tax_account, _ = get_test_tax_account()
 		doc = frappe._dict(
 			is_reverse_charge=1,
-			taxes=[frappe._dict(account_head=tax_account, rate=5)],
+			taxes=[
+				frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Add"),
+				frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Deduct"),
+			],
 			items=[frappe._dict(vat_category=None)],
 		)
 
 		validate_reverse_charge(doc)  # should not raise
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
+
+	def test_reverse_charge_with_only_an_add_row_is_rejected(self):
+		# A single "Add" VAT row is exactly what an ordinary domestic purchase's plain input VAT
+		# looks like — not proof that reverse charge was actually self-accounted (both an output
+		# liability "Add" row and an offsetting input-credit "Deduct" row are required).
+		tax_account, _ = get_test_tax_account()
+		doc = frappe._dict(
+			is_reverse_charge=1,
+			taxes=[frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Add")],
+			items=[frappe._dict(vat_category=None)],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_reverse_charge(doc)
+
+	def test_reverse_charge_with_only_a_deduct_row_is_rejected(self):
+		tax_account, _ = get_test_tax_account()
+		doc = frappe._dict(
+			is_reverse_charge=1,
+			taxes=[frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Deduct")],
+			items=[frappe._dict(vat_category=None)],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_reverse_charge(doc)
 
 	def test_reverse_charge_with_only_unrelated_tax_row_is_rejected(self):
 		# A nonempty Taxes and Charges table isn't proof of anything by itself — a row with no

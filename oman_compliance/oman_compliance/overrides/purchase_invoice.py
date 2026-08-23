@@ -31,18 +31,29 @@ def validate_reverse_charge(doc, method=None):
 
 
 def _has_recipient_output_vat_row(doc) -> bool:
-	"""A nonempty Taxes and Charges table isn't proof of anything — it could just as easily hold
-	an unrelated charge (freight, discount, withholding, ...) with no real VAT row at all. Requires
-	at least one row that both posts to a VAT-bearing account and actually carries a nonzero
-	rate/amount."""
+	"""A single VAT-bearing row isn't proof of self-accounting — an ordinary domestic purchase's
+	plain input VAT is exactly that (one "Add" row) and would satisfy it too. Self-accounting for
+	reverse charge means recording *both* sides of the notional transaction: an "Add" row (the
+	output VAT liability, as if this company were the supplier) and an offsetting "Deduct" row
+	(the input VAT credit claimed back) — using `add_deduct_tax`, the field ERPNext's own Taxes
+	and Charges rows already carry for exactly this distinction, rather than inventing new
+	settings to mark "the" output-VAT account."""
+	has_add_row = False
+	has_deduct_row = False
+
 	for tax in doc.get("taxes") or []:
 		if not is_vat_bearing_account(tax.get("account_head")):
 			continue
 
-		if flt(tax.get("rate")) or flt(tax.get("tax_amount")):
-			return True
+		if not (flt(tax.get("rate")) or flt(tax.get("tax_amount"))):
+			continue
 
-	return False
+		if tax.get("add_deduct_tax") == "Deduct":
+			has_deduct_row = True
+		else:
+			has_add_row = True
+
+	return has_add_row and has_deduct_row
 
 
 def _set_default_vat_category(doc):
