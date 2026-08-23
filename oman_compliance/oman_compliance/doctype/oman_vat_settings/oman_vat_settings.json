@@ -4,6 +4,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "accounts_section",
+  "vat_accounts",
   "thresholds_section",
   "simplified_tax_invoice_threshold",
   "column_break_omvs",
@@ -12,6 +14,18 @@
   "settings_currency"
  ],
  "fields": [
+  {
+   "fieldname": "accounts_section",
+   "fieldtype": "Section Break",
+   "label": "VAT Accounts"
+  },
+  {
+   "description": "One row per company, naming the account that company posts output VAT to — both ordinary sales VAT and, on a Purchase Invoice, the self-accounted output VAT liability for Reverse Charge purchases. Explicitly configured rather than guessed from account type, matching how India Compliance's own GST Settings names its GST accounts explicitly (per company) via its `gst_accounts` child table, rather than inferring them.",
+   "fieldname": "vat_accounts",
+   "fieldtype": "Table",
+   "label": "VAT Accounts",
+   "options": "Oman VAT Account"
+  },
   {
    "fieldname": "thresholds_section",
    "fieldtype": "Section Break",

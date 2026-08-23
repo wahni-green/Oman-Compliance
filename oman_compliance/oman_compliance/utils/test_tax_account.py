@@ -1,31 +1,40 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oman_compliance.oman_compliance.constants import VAT_BEARING_ACCOUNT_TYPES
-from oman_compliance.oman_compliance.utils.tax_account import is_vat_bearing_account
-from oman_compliance.tests import get_test_tax_account
+from oman_compliance.oman_compliance.utils.tax_account import get_output_vat_account, is_output_vat_account
+from oman_compliance.tests import get_oman_test_company, get_test_tax_account, set_output_vat_account
 
 
-class TestIsVatBearingAccount(FrappeTestCase):
-	def test_vat_bearing_account_returns_true(self):
-		tax_account, _ = get_test_tax_account()
+class TestOutputVatAccount(FrappeTestCase):
+	def setUp(self):
+		self.company = get_oman_test_company()
+		self.account, _ = get_test_tax_account()
+		set_output_vat_account(self.company, self.account)
 
-		self.assertTrue(is_vat_bearing_account(tax_account))
+	def test_get_output_vat_account_returns_configured_account(self):
+		self.assertEqual(get_output_vat_account(self.company), self.account)
 
-	def test_non_vat_bearing_account_returns_false(self):
-		_, company = get_test_tax_account()
-		non_vat_account = frappe.db.get_value(
-			"Account",
+	def test_get_output_vat_account_returns_none_for_unconfigured_company(self):
+		other_company = frappe.get_doc(
 			{
-				"company": company,
-				"is_group": 0,
-				"account_type": ["not in", list(VAT_BEARING_ACCOUNT_TYPES)],
-			},
-		)
-		if not non_vat_account:
-			self.skipTest("No non-VAT-bearing account available on this bench for this test.")
+				"doctype": "Company",
+				"company_name": "_Test Unconfigured VAT Company",
+				"abbr": "TUVC",
+				"default_currency": "OMR",
+				"country": "Oman",
+			}
+		).insert(ignore_permissions=True)
 
-		self.assertFalse(is_vat_bearing_account(non_vat_account))
+		self.assertIsNone(get_output_vat_account(other_company.name))
 
-	def test_blank_account_head_returns_false(self):
-		self.assertFalse(is_vat_bearing_account(None))
+	def test_get_output_vat_account_returns_none_for_blank_company(self):
+		self.assertIsNone(get_output_vat_account(None))
+
+	def test_is_output_vat_account_matches_configured_account(self):
+		self.assertTrue(is_output_vat_account(self.account, self.company))
+
+	def test_is_output_vat_account_rejects_a_different_account(self):
+		self.assertFalse(is_output_vat_account("_Test Some Other Account", self.company))
+
+	def test_is_output_vat_account_rejects_blank_account_head(self):
+		self.assertFalse(is_output_vat_account(None, self.company))

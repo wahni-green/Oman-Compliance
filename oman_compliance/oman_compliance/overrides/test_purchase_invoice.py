@@ -1,30 +1,39 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oman_compliance.oman_compliance.constants import VAT_BEARING_ACCOUNT_TYPES
 from oman_compliance.oman_compliance.overrides.purchase_invoice import (
 	set_import_of_goods_flag,
 	validate,
 	validate_reverse_charge,
 )
-from oman_compliance.tests import get_non_oman_test_company, get_oman_test_company, get_test_tax_account
+from oman_compliance.tests import (
+	get_non_oman_test_company,
+	get_oman_test_company,
+	get_test_tax_account,
+	set_output_vat_account,
+)
 
 
 class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
-	def test_reverse_charge_without_tax_rows_is_rejected(self):
-		doc = frappe._dict(is_reverse_charge=1, taxes=[], items=[frappe._dict(vat_category=None)])
+	def setUp(self):
+		self.company = get_oman_test_company()
+
+	def test_reverse_charge_without_output_vat_account_configured_is_rejected(self):
+		doc = frappe._dict(
+			company=self.company, is_reverse_charge=1, taxes=[], items=[frappe._dict(vat_category=None)]
+		)
 
 		with self.assertRaises(frappe.ValidationError):
 			validate_reverse_charge(doc)
 
-	def test_reverse_charge_with_add_and_deduct_rows_is_accepted(self):
+	def test_reverse_charge_with_output_vat_account_row_is_accepted(self):
 		tax_account, _ = get_test_tax_account()
+		set_output_vat_account(self.company, tax_account)
+
 		doc = frappe._dict(
+			company=self.company,
 			is_reverse_charge=1,
-			taxes=[
-				frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Add"),
-				frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Deduct"),
-			],
+			taxes=[frappe._dict(account_head=tax_account, rate=5)],
 			items=[frappe._dict(vat_category=None)],
 		)
 
@@ -32,54 +41,14 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
 
-	def test_reverse_charge_with_mismatched_add_and_deduct_rates_is_rejected(self):
-		# An Add row and a Deduct row existing independently isn't enough: the Add row here is
-		# ordinary 5% input VAT (unrelated to reverse charge), and the Deduct row is some other
-		# 2% charge (e.g. a withholding deduction) that just happens to post to a VAT-bearing
-		# account type — they aren't a genuine self-accounting pair, since real self-accounting
-		# posts the *same* rate on both sides.
-		tax_account, _ = get_test_tax_account()
-		doc = frappe._dict(
-			is_reverse_charge=1,
-			taxes=[
-				frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Add"),
-				frappe._dict(account_head=tax_account, rate=2, add_deduct_tax="Deduct"),
-			],
-			items=[frappe._dict(vat_category=None)],
-		)
-
-		with self.assertRaises(frappe.ValidationError):
-			validate_reverse_charge(doc)
-
-	def test_reverse_charge_with_only_an_add_row_is_rejected(self):
-		# A single "Add" VAT row is exactly what an ordinary domestic purchase's plain input VAT
-		# looks like — not proof that reverse charge was actually self-accounted (both an output
-		# liability "Add" row and an offsetting input-credit "Deduct" row are required).
-		tax_account, _ = get_test_tax_account()
-		doc = frappe._dict(
-			is_reverse_charge=1,
-			taxes=[frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Add")],
-			items=[frappe._dict(vat_category=None)],
-		)
-
-		with self.assertRaises(frappe.ValidationError):
-			validate_reverse_charge(doc)
-
-	def test_reverse_charge_with_only_a_deduct_row_is_rejected(self):
-		tax_account, _ = get_test_tax_account()
-		doc = frappe._dict(
-			is_reverse_charge=1,
-			taxes=[frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Deduct")],
-			items=[frappe._dict(vat_category=None)],
-		)
-
-		with self.assertRaises(frappe.ValidationError):
-			validate_reverse_charge(doc)
-
 	def test_reverse_charge_with_only_unrelated_tax_row_is_rejected(self):
-		# A nonempty Taxes and Charges table isn't proof of anything by itself — a row with no
-		# account_head at all (or one that isn't VAT-bearing) must still be rejected.
+		# Configured, but the invoice's tax row posts somewhere else entirely — a nonempty Taxes
+		# and Charges table isn't proof of anything by itself.
+		tax_account, _ = get_test_tax_account()
+		set_output_vat_account(self.company, tax_account)
+
 		doc = frappe._dict(
+			company=self.company,
 			is_reverse_charge=1,
 			taxes=[frappe._dict(account_head=None, rate=5)],
 			items=[frappe._dict(vat_category=None)],
@@ -88,25 +57,22 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			validate_reverse_charge(doc)
 
-	def test_reverse_charge_with_only_a_non_vat_charge_row_is_rejected(self):
-		# Distinct from the "no account_head at all" case above: this is a real charge row
-		# (freight, discount, withholding, ...) posted to a genuine account that just isn't a
-		# VAT-bearing type — must still be rejected as not satisfying self-accounting.
-		_, template_company = get_test_tax_account()
-		non_vat_account = frappe.db.get_value(
-			"Account",
-			{
-				"company": template_company,
-				"is_group": 0,
-				"account_type": ["not in", list(VAT_BEARING_ACCOUNT_TYPES)],
-			},
-		)
-		if not non_vat_account:
-			self.skipTest("No non-VAT-bearing account available on this bench for this test.")
+	def test_reverse_charge_with_a_different_companys_output_vat_account_is_rejected(self):
+		# The account posted to is *someone else's* configured Output VAT Account, not this
+		# company's own one — must not be accepted just because it's an Output VAT Account for
+		# some company.
+		tax_account, other_company = get_test_tax_account()
+		set_output_vat_account(other_company, tax_account)
+
+		this_companys_account = frappe.db.get_value("Account", {"name": ["!=", tax_account], "is_group": 0})
+		if not this_companys_account:
+			self.skipTest("No second account available on this bench for this test.")
+		set_output_vat_account(self.company, this_companys_account)
 
 		doc = frappe._dict(
+			company=self.company,
 			is_reverse_charge=1,
-			taxes=[frappe._dict(account_head=non_vat_account, rate=5)],
+			taxes=[frappe._dict(account_head=tax_account, rate=5)],
 			items=[frappe._dict(vat_category=None)],
 		)
 
@@ -115,7 +81,10 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 
 	def test_reverse_charge_with_zero_rate_vat_row_is_rejected(self):
 		tax_account, _ = get_test_tax_account()
+		set_output_vat_account(self.company, tax_account)
+
 		doc = frappe._dict(
+			company=self.company,
 			is_reverse_charge=1,
 			taxes=[frappe._dict(account_head=tax_account, rate=0, tax_amount=0)],
 			items=[frappe._dict(vat_category=None)],
@@ -125,26 +94,30 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 			validate_reverse_charge(doc)
 
 	def test_non_reverse_charge_purchase_is_unaffected_by_missing_tax_rows(self):
-		doc = frappe._dict(is_reverse_charge=0, taxes=[], items=[frappe._dict(vat_category=None)])
+		doc = frappe._dict(
+			company=self.company, is_reverse_charge=0, taxes=[], items=[frappe._dict(vat_category=None)]
+		)
 
 		validate_reverse_charge(doc)  # should not raise
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
 
 	def test_existing_category_is_not_overwritten(self):
-		doc = frappe._dict(is_reverse_charge=0, taxes=[], items=[frappe._dict(vat_category="Exempt")])
+		doc = frappe._dict(
+			company=self.company, is_reverse_charge=0, taxes=[], items=[frappe._dict(vat_category="Exempt")]
+		)
 
 		validate_reverse_charge(doc)
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Exempt")
 
 	def test_item_tax_template_category_is_used_over_standard_rated_default(self):
-		tax_account, company = get_test_tax_account()
+		tax_account, template_company = get_test_tax_account()
 		template = frappe.get_doc(
 			{
 				"doctype": "Item Tax Template",
 				"title": "_Test Template Exempt PI",
-				"company": company,
+				"company": template_company,
 				"taxes": [{"tax_type": tax_account, "tax_rate": 0}],
 				"vat_category": "Exempt",
 			}
@@ -152,6 +125,7 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 		self.addCleanup(template.delete)
 
 		doc = frappe._dict(
+			company=self.company,
 			is_reverse_charge=0,
 			taxes=[],
 			items=[frappe._dict(vat_category=None, item_tax_template=template.name)],
@@ -167,8 +141,8 @@ class TestPurchaseInvoiceValidateGating(FrappeTestCase):
 		self.oman_company = get_oman_test_company()
 
 	def test_non_oman_company_is_left_completely_untouched(self):
-		# Reverse Charge would otherwise reject this (checked, but no tax rows) — must not fire
-		# at all for an unrelated company on a shared bench.
+		# Reverse Charge would otherwise reject this (checked, but no Output VAT Account
+		# configured) — must not fire at all for an unrelated company on a shared bench.
 		doc = frappe._dict(
 			company=get_non_oman_test_company(),
 			is_reverse_charge=1,

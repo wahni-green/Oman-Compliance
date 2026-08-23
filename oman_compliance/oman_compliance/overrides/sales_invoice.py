@@ -6,7 +6,7 @@ from frappe import _
 from oman_compliance.oman_compliance.constants import NO_TAX_VAT_CATEGORIES
 from oman_compliance.oman_compliance.overrides.transaction import set_vat_category_defaults
 from oman_compliance.oman_compliance.utils.company import is_oman_company
-from oman_compliance.oman_compliance.utils.tax_account import is_vat_bearing_account
+from oman_compliance.oman_compliance.utils.tax_account import is_output_vat_account
 from oman_compliance.oman_compliance.utils.vat_category import get_item_tax_template_category
 
 
@@ -25,7 +25,7 @@ def validate_vat_category_tax_consistency(doc):
 	many ordinary tax templates and isn't flagged. Reads the rate out of `item_wise_tax_detail`
 	rather than an amount, so this is currency-agnostic by construction (percentages, not money) —
 	no base_*/document-currency confusion possible here (findings §58)."""
-	charged_rates = _get_item_wise_tax_rates(doc.get("taxes") or [])
+	charged_rates = _get_item_wise_tax_rates(doc.get("taxes") or [], doc.get("company"))
 	categories_by_item_code = _get_vat_categories_by_item_code(doc.get("items") or [])
 
 	for row in doc.get("items", []):
@@ -72,14 +72,17 @@ def _get_vat_categories_by_item_code(item_rows) -> dict:
 	return categories
 
 
-def _get_item_wise_tax_rates(tax_rows) -> dict:
-	"""Only aggregates rows posting to a VAT-bearing account — a Sales Taxes and Charges table can
-	just as easily hold an unrelated charge (freight, discount, withholding, ...) with its own
-	nonzero item-wise rate, which must never be misread as VAT applied to that item."""
+def _get_item_wise_tax_rates(tax_rows, company) -> dict:
+	"""Only aggregates rows posting to the company's configured Output VAT Account (Oman VAT
+	Settings) — a Sales Taxes and Charges table can just as easily hold an unrelated charge
+	(freight, discount, withholding, ...) with its own nonzero item-wise rate, which must never be
+	misread as VAT applied to that item. If no Output VAT Account is configured for this company
+	yet, nothing here can be identified as VAT, so this returns no rates at all rather than
+	guessing — the mismatch check below simply doesn't fire until it's configured."""
 	rates: dict[str, float] = {}
 
 	for tax in tax_rows:
-		if not is_vat_bearing_account(tax.get("account_head")):
+		if not is_output_vat_account(tax.get("account_head"), company):
 			continue
 
 		detail = tax.get("item_wise_tax_detail")

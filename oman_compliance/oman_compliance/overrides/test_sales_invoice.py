@@ -3,15 +3,20 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oman_compliance.oman_compliance.constants import VAT_BEARING_ACCOUNT_TYPES
 from oman_compliance.oman_compliance.overrides.sales_invoice import validate
-from oman_compliance.tests import get_non_oman_test_company, get_oman_test_company, get_test_tax_account
+from oman_compliance.tests import (
+	get_non_oman_test_company,
+	get_oman_test_company,
+	get_test_tax_account,
+	set_output_vat_account,
+)
 
 
 class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 	def setUp(self):
 		self.oman_company = get_oman_test_company()
 		self.tax_account, _ = get_test_tax_account()
+		set_output_vat_account(self.oman_company, self.tax_account)
 
 	def test_zero_rated_item_with_tax_charged_is_rejected(self):
 		doc = frappe._dict(
@@ -31,18 +36,11 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 
 	def test_zero_rated_item_with_non_vat_charge_is_not_rejected(self):
 		# A Sales Taxes and Charges row can just as easily be an unrelated charge (freight,
-		# discount, withholding, ...) that happens to have its own nonzero item-wise rate — that
-		# must never be misread as VAT actually applied to a Zero Rated item.
-		non_vat_account = frappe.db.get_value(
-			"Account",
-			{
-				"company": get_test_tax_account()[1],
-				"is_group": 0,
-				"account_type": ["not in", list(VAT_BEARING_ACCOUNT_TYPES)],
-			},
-		)
+		# discount, withholding, ...) posted to some other account entirely, with its own nonzero
+		# item-wise rate — that must never be misread as VAT actually applied to a Zero Rated item.
+		non_vat_account = frappe.db.get_value("Account", {"name": ["!=", self.tax_account], "is_group": 0})
 		if not non_vat_account:
-			self.skipTest("No non-VAT-bearing account available on this bench for this test.")
+			self.skipTest("No second account available on this bench for this test.")
 
 		doc = frappe._dict(
 			company=self.oman_company,
@@ -55,6 +53,29 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 				)
 			],
 		)
+
+		validate(doc)  # should not raise
+
+	def test_zero_rated_item_is_not_rejected_when_output_vat_account_is_unconfigured(self):
+		# Without a configured Output VAT Account, nothing can be identified as VAT at all — the
+		# mismatch check must not fire (rather than falling back to a guess).
+		other_company = get_non_oman_test_company()  # guaranteed to have no vat_accounts row
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer_address=None,
+			items=[frappe._dict(idx=1, item_code="_Test Item", vat_category="Zero Rated")],
+			taxes=[
+				frappe._dict(
+					account_head=other_company,  # not a real account; irrelevant, never matched
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
+		)
+
+		# Reset this company's configuration for this test only.
+		settings = frappe.get_single("Oman VAT Settings")
+		settings.vat_accounts = [row for row in settings.vat_accounts if row.company != self.oman_company]
+		settings.save(ignore_permissions=True)
 
 		validate(doc)  # should not raise
 
