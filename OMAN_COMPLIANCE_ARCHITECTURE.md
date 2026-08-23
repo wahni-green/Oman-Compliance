@@ -24,8 +24,8 @@ India Compliance registers one Frappe module per functional area in `modules.txt
 ```
 oman_compliance/
   hooks.py, install.py, uninstall.py, exceptions.py, boot.py
-  modules.txt                  → "Oman VAT" (extend later, e.g. "Oman e-Invoicing" if it grows large enough)
-  oman_vat/
+  modules.txt                  → "Oman Compliance" (extend later with a second module if e-invoicing grows large)
+  oman_compliance/
     constants/                 → custom_fields.py, __init__.py (regex, static tables)
     setup/                     → __init__.py: create_custom_fields(), create_property_setters()
     overrides/                 → one file per core doctype being extended (validate/on_submit hooks)
@@ -38,6 +38,16 @@ oman_compliance/
     v1/
   tests/                       → before_tests() bootstrap only; feature tests colocated with code
 ```
+
+**Update (Phase 1):** the module is "Oman Compliance", not "Oman VAT" as originally written above, and the
+package folder is `oman_compliance/oman_compliance/`, not `oman_compliance/oman_vat/`. The original plan
+collided head-on with the legacy `oman_vat` app (still physically present in this bench's `apps/` directory,
+even though not installed on any site): its module "OMAN VAT" scrubs to the same internal name (`oman_vat`) as
+"Oman VAT" would, and Frappe's module→app resolution is bench-wide, not per-installed-app — `bench install-app`
+failed by resolving our doctypes into the *other* app's package path. See the Phase 1 status log in
+OMAN_COMPLIANCE_PLAN.md for the full failure signature. Every `oman_vat/` path elsewhere in this document should
+be read as `oman_compliance/` (the nested-module-folder shape below was in fact restored, not avoided, since a
+distinct module name required it).
 
 Everything the legacy `oman_vat` app scattered under `events/`, `setup/operations/`, and a flat doctype
 namespace should collapse into this `overrides/` + `utils/` + `setup/` split.
@@ -58,11 +68,15 @@ India Compliance does **not** use the `fixtures` hooks.py mechanism (which is wh
 - A generic, app-wide helper (`utils/custom_fields.py`) wraps Frappe's own
   `frappe.custom.doctype.custom_field.custom_field.create_custom_fields`, stamping a `module` name onto every
   field so they're attributable, plus `toggle_custom_fields()` (bulk show/hide via `frappe.db.set_value`) and
-  `delete_old_fields()` for patch-time cleanup.
-- `oman_vat/setup/__init__.py::create_custom_fields()` merges all the field dicts and calls
-  `create_custom_fields(get_all_custom_fields(), ignore_validate=True)`.
+  `delete_old_fields()` for patch-time cleanup. **Update (Phase 1):** this app skipped the runtime-stamping
+  wrapper — it mutated the shared `CUSTOM_FIELDS` dict in place, which a `code-review` pass flagged as fragile —
+  and instead sets `"module": "Oman Compliance"` directly on each field dict in `constants/custom_fields.py`,
+  calling Frappe's core `create_custom_fields` straight from `setup/__init__.py`. Revisit the wrapper if a later
+  phase actually needs `toggle_custom_fields()`/`delete_old_fields()` (e.g. Phase 6 migration cleanup).
+- `oman_compliance/setup/__init__.py::create_custom_fields()` merges all the field dicts and calls
+  `create_custom_fields(CUSTOM_FIELDS, ignore_validate=True)`.
 - This is called from **both** `after_install` (fresh installs) and from a `patches.txt` `post_model_sync`
-  line (`execute:from oman_compliance.oman_vat.setup import create_custom_fields; create_custom_fields() #1`)
+  line (`execute:from oman_compliance.oman_compliance.setup import create_custom_fields; create_custom_fields() #1`)
   so upgrades re-sync idempotently. The trailing `#1`/`#2`/... comment is a deliberate Frappe convention —
   patches are tracked by exact line text, so bumping the number forces a re-run when the field set changes.
 - Property setters (e.g. making a core field mandatory, changing `depends_on`) follow the identical
@@ -187,8 +201,11 @@ Two distinct things, both needed:
 
 ### 1.8 Testing conventions to adopt
 
-- `frappe.tests.IntegrationTestCase`, colocated `test_<name>.py` next to the code under test (not a separate
+- `frappe.tests.utils.FrappeTestCase`, colocated `test_<name>.py` next to the code under test (not a separate
   top-level tests tree) — e.g. `overrides/test_purchase_invoice.py` beside `overrides/purchase_invoice.py`.
+  (India Compliance's current clone uses `frappe.tests.IntegrationTestCase`, but that class doesn't exist on
+  this bench's Frappe v15.116.0 — only `FrappeTestCase` from `frappe.tests.utils`. Revisit if the bench upgrades
+  to a Frappe version that ships `IntegrationTestCase`.)
 - Mock the Fawtara HTTP API in tests with the `responses` library (`@responses.activate`,
   `responses.add(...)`), never hit a real endpoint.
 - `time-machine` for date-boundary tests (24-hour submission window, quarter-end filing deadline).
@@ -211,24 +228,24 @@ Based on what India Compliance actually uses (not the full boilerplate menu):
 required_apps = ["frappe/erpnext"]
 
 doc_events = {
-    "Company": {"validate": "oman_compliance.oman_vat.overrides.company.validate"},
-    ("Customer", "Supplier"): {"validate": "oman_compliance.oman_vat.overrides.party.validate_trn"},
+    "Company": {"validate": "oman_compliance.oman_compliance.overrides.company.validate"},
+    ("Customer", "Supplier"): {"validate": "oman_compliance.oman_compliance.overrides.party.validate_trn"},
     "Sales Invoice": {
-        "validate": "oman_compliance.oman_vat.overrides.sales_invoice.validate",
-        "on_submit": "oman_compliance.oman_vat.overrides.sales_invoice.on_submit",
+        "validate": "oman_compliance.oman_compliance.overrides.sales_invoice.validate",
+        "on_submit": "oman_compliance.oman_compliance.overrides.sales_invoice.on_submit",
     },
     "Purchase Invoice": {
-        "validate": "oman_compliance.oman_vat.overrides.purchase_invoice.validate_reverse_charge",
+        "validate": "oman_compliance.oman_compliance.overrides.purchase_invoice.validate_reverse_charge",
     },
 }
 
 scheduler_events = {
     "cron": {
-        "*/5 * * * *": ["oman_compliance.oman_vat.utils.e_invoicing.retry_failed_submissions"],
+        "*/5 * * * *": ["oman_compliance.oman_compliance.utils.e_invoicing.retry_failed_submissions"],
     }
 }
 
-jinja = {"methods": ["oman_compliance.oman_vat.utils.jinja.get_qr_code"]}
+jinja = {"methods": ["oman_compliance.oman_compliance.utils.jinja.get_qr_code"]}
 
 after_install = "oman_compliance.install.after_install"   # calls create_custom_fields()
 before_migrate = "oman_compliance.patches.check_version_compatibility.execute"
