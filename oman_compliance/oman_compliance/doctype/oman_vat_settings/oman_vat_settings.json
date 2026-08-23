@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "creation": "2026-08-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "thresholds_section",
+  "simplified_tax_invoice_threshold",
+  "column_break_omvs",
+  "mandatory_registration_threshold",
+  "voluntary_registration_threshold"
+ ],
+ "fields": [
+  {
+   "fieldname": "thresholds_section",
+   "fieldtype": "Section Break",
+   "label": "VAT Thresholds (OMR)"
+  },
+  {
+   "default": "500",
+   "description": "Grand total (excl. VAT) below which a Simplified Tax Invoice may be issued to a non-taxable customer instead of a full Tax Invoice.",
+   "fieldname": "simplified_tax_invoice_threshold",
+   "fieldtype": "Currency",
+   "label": "Simplified Tax Invoice Threshold"
+  },
+  {
+   "fieldname": "column_break_omvs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "38500",
+   "description": "Informational only. Annual taxable supplies above this amount require mandatory VAT registration with the OTA.",
+   "fieldname": "mandatory_registration_threshold",
+   "fieldtype": "Currency",
+   "label": "Mandatory VAT Registration Threshold"
+  },
+  {
+   "default": "19250",
+   "description": "Informational only. Annual taxable supplies above this amount allow voluntary VAT registration with the OTA.",
+   "fieldname": "voluntary_registration_threshold",
+   "fieldtype": "Currency",
+   "label": "Voluntary VAT Registration Threshold"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Oman Compliance",
+ "name": "Oman VAT Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
