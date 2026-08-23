@@ -42,7 +42,7 @@ jobs:
       - name: Find tests
         run: |
           echo "Finding tests"
-          grep -rn "def test" > /dev/null
+          grep -rn --include='*.py' "def test" . > /dev/null
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -89,7 +89,7 @@ jobs:
       - name: Install
         working-directory: /home/runner/frappe-bench
         run: |
-          bench get-app oman_compliance $GITHUB_WORKSPACE
+          bench get-app oman_compliance $GITHUB_WORKSPACE --resolve-deps
           bench setup requirements --dev
           bench new-site --db-root-password root --admin-password admin test_site
           bench --site test_site install-app oman_compliance
