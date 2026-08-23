@@ -1,4 +1,4 @@
-from oman_compliance.oman_vat.setup import create_custom_fields
+from oman_compliance.oman_compliance.setup import create_custom_fields
 
 
 def after_install() -> None:
