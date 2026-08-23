@@ -8,7 +8,8 @@
   "simplified_tax_invoice_threshold",
   "column_break_omvs",
   "mandatory_registration_threshold",
-  "voluntary_registration_threshold"
+  "voluntary_registration_threshold",
+  "settings_currency"
  ],
  "fields": [
   {
@@ -21,7 +22,8 @@
    "description": "Grand total (excl. VAT) below which a Simplified Tax Invoice may be issued to a non-taxable customer instead of a full Tax Invoice.",
    "fieldname": "simplified_tax_invoice_threshold",
    "fieldtype": "Currency",
-   "label": "Simplified Tax Invoice Threshold"
+   "label": "Simplified Tax Invoice Threshold",
+   "options": "settings_currency"
   },
   {
    "fieldname": "column_break_omvs",
@@ -32,14 +34,25 @@
    "description": "Informational only. Annual taxable supplies above this amount require mandatory VAT registration with the OTA.",
    "fieldname": "mandatory_registration_threshold",
    "fieldtype": "Currency",
-   "label": "Mandatory VAT Registration Threshold"
+   "label": "Mandatory VAT Registration Threshold",
+   "options": "settings_currency"
   },
   {
    "default": "19250",
    "description": "Informational only. Annual taxable supplies above this amount allow voluntary VAT registration with the OTA.",
    "fieldname": "voluntary_registration_threshold",
    "fieldtype": "Currency",
-   "label": "Voluntary VAT Registration Threshold"
+   "label": "Voluntary VAT Registration Threshold",
+   "options": "settings_currency"
+  },
+  {
+   "default": "OMR",
+   "description": "These thresholds are always in OMR regardless of the site's default currency.",
+   "fieldname": "settings_currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Currency",
+   "options": "Currency"
   }
  ],
  "index_web_pages_for_search": 1,

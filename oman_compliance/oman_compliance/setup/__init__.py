@@ -20,3 +20,11 @@ def create_designated_zones() -> None:
 			continue
 
 		frappe.get_doc({"doctype": "Designated Zone", **zone}).insert(ignore_permissions=True)
+
+
+def set_default_settings_currency() -> None:
+	# A Single doctype's field-level `default` only applies to a document that's never been
+	# persisted — a site where Oman VAT Settings already existed before settings_currency was
+	# added would otherwise read back None for it forever, since nothing re-saves the singleton.
+	if not frappe.db.get_single_value("Oman VAT Settings", "settings_currency"):
+		frappe.db.set_single_value("Oman VAT Settings", "settings_currency", "OMR")

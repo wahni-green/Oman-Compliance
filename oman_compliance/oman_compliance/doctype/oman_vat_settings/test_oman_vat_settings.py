@@ -8,3 +8,4 @@ class TestOmanVATSettings(FrappeTestCase):
 		self.assertEqual(settings.simplified_tax_invoice_threshold, 500)
 		self.assertEqual(settings.mandatory_registration_threshold, 38500)
 		self.assertEqual(settings.voluntary_registration_threshold, 19250)
+		self.assertEqual(settings.settings_currency, "OMR")
