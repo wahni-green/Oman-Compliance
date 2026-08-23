@@ -49,3 +49,44 @@ def set_default_company_for_tests() -> None:
 	global_defaults = frappe.get_single("Global Defaults")
 	global_defaults.default_company = TEST_COMPANY
 	global_defaults.save()
+
+
+def get_test_tax_account() -> tuple[str, str]:
+	"""Return (account_name, company) for any existing account usable as an Item Tax Template row
+	— for tests that need a throwaway Item Tax Template fixture without depending on this app's
+	own TEST_COMPANY existing (it may not, on a shared bench; see before_tests() above)."""
+	account = frappe.db.get_value(
+		"Account",
+		{
+			"account_type": ["in", ["Tax", "Chargeable", "Income Account", "Expense Account"]],
+			"is_group": 0,
+		},
+		["name", "company"],
+	)
+	if not account:
+		frappe.throw("No usable Tax/Chargeable/Income/Expense account found for test fixtures.")
+
+	return account
+
+
+def get_oman_test_company() -> str:
+	"""Return the name of a Company registered in Oman, creating a minimal one if none exists yet
+	on this bench — needed by any test exercising Oman-company-gated behavior (see
+	utils/company.py::is_oman_company()). Created uncommitted, inside the calling test's own DB
+	transaction, so FrappeTestCase's per-test rollback cleans it up automatically; no explicit
+	deletion needed."""
+	existing = frappe.db.get_value("Company", {"country": "Oman"})
+	if existing:
+		return existing
+
+	company = frappe.get_doc(
+		{
+			"doctype": "Company",
+			"company_name": "_Test Oman Gating Company",
+			"abbr": "TOGC",
+			"default_currency": "OMR",
+			"country": "Oman",
+		}
+	).insert(ignore_permissions=True)
+
+	return company.name
