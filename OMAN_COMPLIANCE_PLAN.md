@@ -267,3 +267,18 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
   four times across three rounds of fixes, to confirm the custom-fields/designated-zone seed stays idempotent —
   verified no duplicates each time), and `bench run-tests --app oman_compliance` (13/13 passing) all succeeded.
   Per user decision, the app is being left installed on dev.localhost rather than uninstalled after verification.
+- 2026-08-23 — Three more `code-review` findings addressed: (1) `TRN_PATTERN` used `\d`, which matches any
+  Unicode decimal digit (e.g. Arabic-Indic), not just ASCII 0-9 — changed to `[0-9]`. (2) `Oman VAT Settings`'
+  three Currency fields had no `options`, so they rendered in the *site's* default currency rather than OMR
+  (confirmed live on dev.localhost, whose default currency is INR) — added a hidden `settings_currency` field
+  (deliberately not named `currency`, since Frappe treats that exact fieldname as a sitewide-default lookup key
+  that overrides a DocField's own static `default` — confirmed live before renaming) and pointed the three
+  amount fields' `options` at it. Since a Single doctype's field `default` only applies to a document that's
+  never been persisted, `setup/__init__.py::set_default_settings_currency()` backfills it for the
+  already-existing `Oman VAT Settings` singleton on dev.localhost (wired into `after_install` and
+  `patches.txt` like the other seed functions). (3) A separate review round had proposed making
+  `create_designated_zones()` overwrite `authority`/`article_54_conditions` on existing records so corrected
+  wording reaches already-migrated sites — reverted that: there's no way to distinguish a still-default record
+  from one an admin deliberately edited, so a blanket overwrite risked destroying local corrections. Back to
+  insert-only; a future wording fix belongs in an explicit dated patch instead. `bench run-tests --app
+  oman_compliance` (15/15 passing).
