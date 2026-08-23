@@ -19,3 +19,15 @@ class TestDesignatedZone(FrappeTestCase):
 		create_designated_zones()
 
 		self.assertEqual(frappe.db.count("Designated Zone"), count_before)
+
+	def test_rerun_updates_existing_zone_and_preserves_is_active(self):
+		create_designated_zones()
+		zone_name = DESIGNATED_ZONES[0]["zone_name"]
+		frappe.db.set_value("Designated Zone", zone_name, "authority", "Stale Authority")
+		frappe.db.set_value("Designated Zone", zone_name, "is_active", 0)
+
+		create_designated_zones()
+
+		zone = frappe.get_doc("Designated Zone", zone_name)
+		self.assertEqual(zone.authority, DESIGNATED_ZONES[0]["authority"])
+		self.assertEqual(zone.is_active, 0)
