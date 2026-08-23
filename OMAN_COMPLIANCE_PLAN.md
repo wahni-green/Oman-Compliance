@@ -22,20 +22,20 @@ functional well ahead of the pilot window if this app is meant to be pilot-ready
 
 Fixes the legacy app's packaging gaps (findings §76) and sets up the skeleton everything else builds on.
 
-- [ ] `pyproject.toml`: pin real dependencies (`pyqrcode`, `pypng`, any HTTP client needs) — no undeclared
+- [x] `pyproject.toml`: pin real dependencies (`pyqrcode`, `pypng`, any HTTP client needs) — no undeclared
       runtime imports like the legacy app's `pyqrcode` bug (findings §71)
-- [ ] `hooks.py`: `required_apps = ["frappe/erpnext"]`, app metadata, `require_type_annotated_api_methods = True`
-- [ ] `modules.txt`: register `Oman VAT` module
-- [ ] `exceptions.py`: empty flat exception hierarchy stub (`ServiceProviderError`, `NotApplicableError`, etc. —
+- [x] `hooks.py`: `required_apps = ["frappe/erpnext"]`, app metadata, `require_type_annotated_api_methods = True`
+- [x] `modules.txt`: register `Oman VAT` module
+- [x] `exceptions.py`: empty flat exception hierarchy stub (`ServiceProviderError`, `NotApplicableError`, etc. —
       filled in during Phase 5)
-- [ ] `install.py` / `uninstall.py`: `after_install` → calls `create_custom_fields()` (initially a no-op until
+- [x] `install.py` / `uninstall.py`: `after_install` → calls `create_custom_fields()` (initially a no-op until
       Phase 1 populates it); `before_migrate` → version-compatibility check
-- [ ] `oman_vat/` package skeleton: `constants/`, `setup/`, `overrides/`, `utils/`, `api_classes/`, `doctype/`,
+- [x] `oman_vat/` package skeleton: `constants/`, `setup/`, `overrides/`, `utils/`, `api_classes/`, `doctype/`,
       `report/`, `print_format/`
-- [ ] `tests/__init__.py::before_tests()` — bootstrap an Oman test company (OMR currency, VAT-registered) per
+- [x] `tests/__init__.py::before_tests()` — bootstrap an Oman test company (OMR currency, VAT-registered) per
       §1.8 of the architecture doc
-- [ ] `license.txt` with real AGPL-3.0 text (legacy app had a one-line placeholder, findings §76)
-- [ ] `patches.txt` with `[pre_model_sync]` / `[post_model_sync]` sections, empty to start
+- [x] `license.txt` with real AGPL-3.0 text (legacy app had a one-line placeholder, findings §76)
+- [x] `patches.txt` with `[pre_model_sync]` / `[post_model_sync]` sections, empty to start
 
 ---
 
@@ -155,3 +155,42 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
 ## Status log
 
 - 2026-08-23 — Plan created. Phases 0–7 scoped. No implementation started yet.
+- 2026-08-23 — Phase 0 complete: package skeleton (`oman_vat/` subpackage with `constants/`, `setup/`,
+  `overrides/`, `utils/`, `api_classes/`, `doctype/`, `report/`, `print_format/`), `hooks.py`
+  (`required_apps`, `require_type_annotated_api_methods`, `after_install`, `before_uninstall`,
+  `before_migrate`, `before_tests`), `modules.txt` → `Oman VAT`, `exceptions.py` stub hierarchy,
+  `install.py`/`uninstall.py`, `patches/check_version_compatibility.py`, `tests/__init__.py::before_tests()`
+  (Oman/OMR test company), `pyproject.toml` deps (`pyqrcode`, `pypng`). Removed the default
+  `oman_compliance/oman_compliance/` module folder scaffolded by `bench new-app` since the app now registers
+  the `Oman VAT` module instead. `license.txt` and `patches.txt` were already correct from initial scaffold.
+  Validated with `ast.parse` + `ruff check`/`ruff format` only — not yet installed on a live site, since the
+  only available bench site (`dev.localhost`) is shared with several unrelated client apps; live
+  install/migrate verification should happen on a dedicated site before Phase 1 lands doctypes.
+- 2026-08-23 — Independent review agent (`code-review` skill) caught two Phase 0 issues, both fixed:
+  `tests/__init__.py::before_tests()` was unconditionally pointing `Global Defaults.default_company` at the
+  test company even when `setup_complete()` was skipped (an existing `Company` row on a shared bench) —
+  crashed with a Link validation error; now gated on `frappe.db.exists("Company", TEST_COMPANY)`. Also flagged
+  that `require_type_annotated_api_methods` is a silent no-op on this bench's Frappe v15 (it's a v16+ hook) —
+  kept it for forward-compat with the architecture doc's intent but added a comment explaining why it's
+  currently inert.
+- 2026-08-23 — Added a `.claude` Stop hook (`check-reviewed.sh` + `mark-reviewed.sh` + `diff-hash.sh`) that
+  blocked Claude from ending a turn with an unreviewed diff in the working tree, so an independent
+  `code-review` pass runs on every change, not just when asked. A `code-review` pass over that hook's own diff
+  (dogfooding it before first use) caught two more Phase 0 issues, both fixed: the version-compatibility check
+  was wired only to `before_migrate`, not `before_install`, so a fresh install on an incompatible Frappe
+  version wasn't blocked at install time (now wired to both); and `check_version_compatibility.py` used a bare
+  `int(frappe.__version__.split(".")[0])` with no handling for a non-numeric leading version segment (now uses
+  a regex match with a safe fallback).
+- 2026-08-23 — Replaced the Stop hook above with a `PreToolUse` hook (`.claude/settings.json`, matcher `Bash`)
+  scoped to `git push`: `check-before-push.sh` blocks an actual push (via `permissionDecision: "deny"`) when
+  the diff between HEAD and its upstream/`origin/<branch>` (falling back to `origin/main`/`master`/`develop`)
+  doesn't match the hash last recorded by `mark-reviewed.sh`; `diff-hash.sh` now hashes committed history
+  rather than the working tree. `check-reviewed.sh` was removed. A `code-review` pass over this change caught
+  a real bug (fixed): the script trusted `settings.json`'s `if` filter to have already scoped it to `git push`
+  commands and applied the gate unconditionally, so it wrongly denied unrelated `git` commands (e.g. `git
+  status`, `git rev-parse`) whenever `if` matched more broadly than expected — confirmed by direct testing.
+  The script now independently parses `tool_input.command` from stdin (segment-split on `;`/`&`/`|`/newline,
+  matched against `^git\s+push\b` per segment) and only ever denies for an actual `git push` invocation,
+  regardless of what `if` does. Also added a comment to `tests/__init__.py::before_tests()` documenting that,
+  on a shared bench with a pre-existing `Company` (like this one), `TEST_COMPANY` is never created — a
+  limitation inherited from the India Compliance convention this app follows, not something Phase 0 fixes.

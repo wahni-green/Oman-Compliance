@@ -5,10 +5,13 @@ app_description = "Oman Compliance for ERPNext"
 app_email = "danyrt@wahni.com"
 app_license = "agpl-3.0"
 
+# Only enforced on Frappe v16+; a no-op on this bench's v15 (ignored unknown hook key).
+require_type_annotated_api_methods = True
+
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = ["frappe/erpnext"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -82,14 +85,19 @@ app_license = "agpl-3.0"
 # Installation
 # ------------
 
-# before_install = "oman_compliance.install.before_install"
-# after_install = "oman_compliance.install.after_install"
+before_install = "oman_compliance.patches.check_version_compatibility.execute"
+after_install = "oman_compliance.install.after_install"
 
 # Uninstallation
 # ------------
 
-# before_uninstall = "oman_compliance.uninstall.before_uninstall"
+before_uninstall = "oman_compliance.uninstall.before_uninstall"
 # after_uninstall = "oman_compliance.uninstall.after_uninstall"
+
+# Migration
+# ---------
+
+before_migrate = "oman_compliance.patches.check_version_compatibility.execute"
 
 # Integration Setup
 # ------------------
@@ -169,7 +177,7 @@ app_license = "agpl-3.0"
 # Testing
 # -------
 
-# before_tests = "oman_compliance.install.before_tests"
+before_tests = "oman_compliance.tests.before_tests"
 
 # Overriding Methods
 # ------------------------------
@@ -246,4 +254,3 @@ app_license = "agpl-3.0"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-
