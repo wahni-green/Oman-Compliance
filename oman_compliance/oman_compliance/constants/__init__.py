@@ -5,4 +5,4 @@ import re
 # followed by 10 digits, matching the placeholder already used by the test company fixture in
 # tests/__init__.py. Update this pattern once OTA's Fawtara integration guide confirms the real
 # format (and add the checksum check alongside it, if one exists).
-TRN_PATTERN = re.compile(r"^OM\d{10}$")
+TRN_PATTERN = re.compile(r"^OM[0-9]{10}$")

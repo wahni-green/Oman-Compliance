@@ -12,6 +12,14 @@ class TestTRN(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			frappe.get_doc({"doctype": "TRN", "trn": "INVALID"}).insert()
 
+	def test_non_ascii_digits_are_rejected(self):
+		# Python's \d in a regex matches any Unicode decimal digit, not just ASCII 0-9 — these
+		# Arabic-Indic digits (e.g. from an Arabic-locale keyboard) look like "OM1234567890" but
+		# must not pass validation, since downstream consumers (Fawtara API, DB uniqueness) expect
+		# plain ASCII digits.
+		with self.assertRaises(frappe.ValidationError):
+			frappe.get_doc({"doctype": "TRN", "trn": "OM١٢٣٤٥٦٧٨٩٠"}).insert()  # noqa: RUF001
+
 	def test_rename_is_normalized(self):
 		# Renaming (e.g. via the Desk rename dialog) bypasses before_naming entirely, so
 		# before_rename() is TRN's only chance to validate/normalize a new name — test it
