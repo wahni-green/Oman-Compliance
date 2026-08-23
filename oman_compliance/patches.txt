@@ -7,6 +7,6 @@
 # The trailing #N on each line is a per-line version marker (bump it to force that line to
 # re-run on the next migrate when its underlying field/seed definition changes) — it is not an
 # execution-order index across lines, and the two lines below are independent of each other.
-execute:from oman_compliance.oman_compliance.setup import create_custom_fields; create_custom_fields() #3
+execute:from oman_compliance.oman_compliance.setup import create_custom_fields; create_custom_fields() #6
 execute:from oman_compliance.oman_compliance.setup import create_designated_zones; create_designated_zones() #1
 execute:from oman_compliance.oman_compliance.setup import set_default_settings_currency; set_default_settings_currency() #1

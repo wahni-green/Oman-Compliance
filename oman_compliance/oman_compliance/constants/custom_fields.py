@@ -101,4 +101,29 @@ CUSTOM_FIELDS = {
 			"module": MODULE,
 		},
 	],
+	"Purchase Invoice": [
+		{
+			"fieldname": "is_reverse_charge",
+			"label": "Reverse Charge Applicable",
+			"fieldtype": "Check",
+			"insert_after": "tax_category",
+			"translatable": 0,
+			"description": "Check for imported services and other reverse-charge supplies where this"
+			" company must self-account for output VAT as the recipient (Oman VAT return box 2,"
+			" findings §56/86). Requires VAT rows on this invoice for the self-accounting entries.",
+			"module": MODULE,
+		},
+		{
+			"fieldname": "is_import_of_goods",
+			"label": "Import of Goods",
+			"fieldtype": "Check",
+			"insert_after": "is_reverse_charge",
+			"read_only": 1,
+			"translatable": 0,
+			"description": "Automatically set from the Dispatch Address's country (Oman VAT return"
+			" box 4 — distinct from Reverse Charge above, which covers imported services, not goods)."
+			" A blank Dispatch Address is treated as not an import.",
+			"module": MODULE,
+		},
+	],
 }

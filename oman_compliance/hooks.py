@@ -152,6 +152,9 @@ doc_events = {
 		"validate": "oman_compliance.oman_compliance.overrides.transaction.set_vat_category_defaults",
 	},
 	"Sales Invoice": {"validate": "oman_compliance.oman_compliance.overrides.sales_invoice.validate"},
+	"Purchase Invoice": {
+		"validate": "oman_compliance.oman_compliance.overrides.purchase_invoice.validate",
+	},
 }
 
 # Scheduled Tasks
