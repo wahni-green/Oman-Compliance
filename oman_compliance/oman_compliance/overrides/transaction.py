@@ -6,13 +6,9 @@ from oman_compliance.oman_compliance.utils.vat_category import get_item_tax_temp
 
 
 def set_vat_category_defaults(doc, method=None):
-	"""Shared across Sales Order/Quotation/Delivery Note/Sales Invoice so a category set (or
-	defaulted) earlier in the sales cycle carries forward. Only fills a blank value — never
-	overwrites a category already on the row, whether the user set it explicitly or an earlier
-	document in the chain already defaulted it. A row's own Item Tax Template takes priority over
-	the zone guess below when the template declares a VAT Category, since that's an explicit,
-	authoritative signal rather than a suggestion. No-ops entirely for a non-Oman company, so this
-	never touches an unrelated company's transactions on a shared bench."""
+	"""Shared across Sales Order/Quotation/Delivery Note/Sales Invoice. Only fills a blank
+	category, never overwrites one already set; a row's own Item Tax Template wins over the zone
+	guess below when it declares one."""
 	if not is_oman_company(doc.get("company")):
 		return
 
