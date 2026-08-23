@@ -10,12 +10,13 @@ def create_custom_fields() -> None:
 
 
 def create_designated_zones() -> None:
+	# Insert-only: there's no way here to tell a still-default record from one an admin has
+	# deliberately edited (e.g. corrected wording after checking with OTA), so this never
+	# overwrites an existing row. A future correction to DESIGNATED_ZONES itself needs an
+	# explicit dated patch (patches/vN/...) that updates the specific field(s), not a blanket
+	# resync here.
 	for zone in DESIGNATED_ZONES:
 		if frappe.db.exists("Designated Zone", zone["zone_name"]):
-			# Keep authority/conditions in sync with DESIGNATED_ZONES on re-run (e.g. after a
-			# wording correction), without touching is_active — that's a user-controlled toggle,
-			# not part of the seed data.
-			frappe.db.set_value("Designated Zone", zone["zone_name"], zone)
 			continue
 
 		frappe.get_doc({"doctype": "Designated Zone", **zone}).insert(ignore_permissions=True)
