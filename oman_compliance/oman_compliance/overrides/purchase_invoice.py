@@ -32,28 +32,32 @@ def validate_reverse_charge(doc, method=None):
 
 def _has_recipient_output_vat_row(doc) -> bool:
 	"""A single VAT-bearing row isn't proof of self-accounting — an ordinary domestic purchase's
-	plain input VAT is exactly that (one "Add" row) and would satisfy it too. Self-accounting for
-	reverse charge means recording *both* sides of the notional transaction: an "Add" row (the
-	output VAT liability, as if this company were the supplier) and an offsetting "Deduct" row
-	(the input VAT credit claimed back) — using `add_deduct_tax`, the field ERPNext's own Taxes
-	and Charges rows already carry for exactly this distinction, rather than inventing new
-	settings to mark "the" output-VAT account."""
-	has_add_row = False
-	has_deduct_row = False
+	plain input VAT is exactly that (one "Add" row) and would satisfy it too. An independently-
+	existing "Add" row and "Deduct" row aren't enough either: either one could be something else
+	entirely (ordinary input VAT for the Add row; an unrelated withholding/discount deduction for
+	the Deduct row) that just happens to post to a VAT-bearing account *type*, without the two
+	actually being related. Genuine self-accounting posts the *same* rate on both sides — it's the
+	same VAT, recorded twice, once as the output liability and once as the offsetting input
+	credit — so this requires a matched Add/Deduct pair at an identical nonzero rate, using
+	`add_deduct_tax`, the field ERPNext's own Taxes and Charges rows already carry for exactly
+	this distinction, rather than inventing new settings to mark "the" output-VAT account."""
+	add_rates = set()
+	deduct_rates = set()
 
 	for tax in doc.get("taxes") or []:
 		if not is_vat_bearing_account(tax.get("account_head")):
 			continue
 
-		if not (flt(tax.get("rate")) or flt(tax.get("tax_amount"))):
+		rate = flt(tax.get("rate"))
+		if not rate:
 			continue
 
 		if tax.get("add_deduct_tax") == "Deduct":
-			has_deduct_row = True
+			deduct_rates.add(rate)
 		else:
-			has_add_row = True
+			add_rates.add(rate)
 
-	return has_add_row and has_deduct_row
+	return bool(add_rates & deduct_rates)
 
 
 def _set_default_vat_category(doc):

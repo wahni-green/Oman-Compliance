@@ -32,6 +32,25 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
 
+	def test_reverse_charge_with_mismatched_add_and_deduct_rates_is_rejected(self):
+		# An Add row and a Deduct row existing independently isn't enough: the Add row here is
+		# ordinary 5% input VAT (unrelated to reverse charge), and the Deduct row is some other
+		# 2% charge (e.g. a withholding deduction) that just happens to post to a VAT-bearing
+		# account type — they aren't a genuine self-accounting pair, since real self-accounting
+		# posts the *same* rate on both sides.
+		tax_account, _ = get_test_tax_account()
+		doc = frappe._dict(
+			is_reverse_charge=1,
+			taxes=[
+				frappe._dict(account_head=tax_account, rate=5, add_deduct_tax="Add"),
+				frappe._dict(account_head=tax_account, rate=2, add_deduct_tax="Deduct"),
+			],
+			items=[frappe._dict(vat_category=None)],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_reverse_charge(doc)
+
 	def test_reverse_charge_with_only_an_add_row_is_rejected(self):
 		# A single "Add" VAT row is exactly what an ordinary domestic purchase's plain input VAT
 		# looks like — not proof that reverse charge was actually self-accounted (both an output
