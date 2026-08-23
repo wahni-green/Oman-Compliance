@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PreToolUse hook (Bash): blocks pushing commits that haven't been through an
-# independent review since they last changed. settings.json's `if` filter is
-# only a best-effort prefilter, so this re-checks the actual command from
-# stdin itself rather than trusting the filter to have scoped it correctly.
+# PreToolUse hook (Bash, matcher-only — no `if` filter, since its exact
+# command-matching semantics aren't verified and a silently-skipped hook
+# would defeat the whole gate): blocks pushing commits that haven't been
+# through an independent review since they last changed.
 set -euo pipefail
 cd "${CLAUDE_PROJECT_DIR:-.}"
 
@@ -12,11 +12,13 @@ payload="$(cat)"
 # than always assuming "current branch vs its own upstream" — otherwise
 # `git push <other-remote> <other-refspec>` would be checked against the
 # wrong commit range and a stale marker could wrongly authorize it. Tokenizes
-# each segment (rather than a single regex on the raw text) so env-var
-# prefixes (`FOO=bar git push`) and git's own global options
-# (`git -c x=y push`) before the `push` subcommand are still detected.
+# the whole command with shlex (so quoted values like `GIT_AUTHOR_NAME="John
+# Doe" git push` don't break word-splitting), then splits on shell separators
+# to find each logical sub-command, so env-var prefixes (`FOO=bar git push`)
+# and git's own global options (`git -c x=y push`) before the `push`
+# subcommand are still detected.
 push_info="$(printf '%s' "$payload" | python3 -c '
-import json, re, sys
+import json, re, shlex, sys
 
 try:
 	data = json.load(sys.stdin)
@@ -25,32 +27,44 @@ except Exception:
 	sys.exit()
 
 command = (data.get("tool_input") or {}).get("command") or ""
-segments = re.split(r"[;&|\n]+", command)
+
+try:
+	tokens = shlex.split(command)
+except ValueError:
+	tokens = command.split()
+
+SEPARATORS = {";", "&&", "||", "&", "|"}
+segments = [[]]
+for token in tokens:
+	if token in SEPARATORS:
+		segments.append([])
+	else:
+		segments[-1].append(token)
 
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # git global options that consume a following value token (only when not
 # already given in --flag=value form).
 GLOBAL_VALUE_FLAGS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--exec-path"}
 
-def find_push_args(tokens):
+def find_push_args(seg_tokens):
 	i = 0
-	while i < len(tokens) and ENV_ASSIGNMENT.match(tokens[i]):
+	while i < len(seg_tokens) and ENV_ASSIGNMENT.match(seg_tokens[i]):
 		i += 1
-	if i >= len(tokens) or tokens[i] != "git":
+	if i >= len(seg_tokens) or seg_tokens[i] != "git":
 		return None
 	i += 1
-	while i < len(tokens) and tokens[i].startswith("-"):
-		flag = tokens[i]
+	while i < len(seg_tokens) and seg_tokens[i].startswith("-"):
+		flag = seg_tokens[i]
 		i += 1
 		if flag in GLOBAL_VALUE_FLAGS and "=" not in flag:
 			i += 1
-	if i >= len(tokens) or tokens[i] != "push":
+	if i >= len(seg_tokens) or seg_tokens[i] != "push":
 		return None
-	return tokens[i + 1 :]
+	return seg_tokens[i + 1 :]
 
 push_args = None
 for segment in segments:
-	result = find_push_args(segment.split())
+	result = find_push_args(segment)
 	if result is not None:
 		push_args = result
 		break
@@ -64,10 +78,13 @@ if push_args is None:
 VALUE_FLAGS = {"--repo", "--receive-pack", "--exec", "--push-option", "-o"}
 # Flags that push a scope this hook cannot represent as a single ref diff.
 AMBIGUOUS_FLAGS = {"--all", "--mirror", "--branches", "--tags"}
+# Deletion pushes no new content — nothing to review.
+DELETE_FLAGS = {"-d", "--delete"}
 
 positional = []
 skip_next = False
 ambiguous = False
+delete = False
 for token in push_args:
 	if skip_next:
 		skip_next = False
@@ -77,6 +94,8 @@ for token in push_args:
 			skip_next = True
 		elif token in AMBIGUOUS_FLAGS:
 			ambiguous = True
+		elif token in DELETE_FLAGS:
+			delete = True
 		continue
 	positional.append(token)
 
@@ -93,9 +112,17 @@ refspec = refspec.lstrip("+")
 if not ambiguous and "*" in refspec:
 	ambiguous = True
 
+if refspec.startswith(":"):
+	delete = True
+
 if ambiguous:
 	print("1")
 	print("AMBIGUOUS")
+	sys.exit()
+
+if delete:
+	print("1")
+	print("DELETE")
 	sys.exit()
 
 if ":" in refspec:
@@ -127,12 +154,19 @@ if [ "$line2" = "AMBIGUOUS" ]; then
 	exit 0
 fi
 
+if [ "$line2" = "DELETE" ]; then
+	exit 0
+fi
+
 remote="$line2"
 local_ref="$(printf '%s\n' "$push_info" | sed -n '3p')"
 remote_ref="$(printf '%s\n' "$push_info" | sed -n '4p')"
 
 [ -n "$local_ref" ] || local_ref="HEAD"
-if [ -z "$remote_ref" ]; then
+# A missing (or bare "HEAD") <dst> means "update the same ref as <src>" per
+# git-push(1) — i.e. the current branch's name, not a ref literally called
+# "HEAD" (which could otherwise resolve to the unrelated origin/HEAD symref).
+if [ -z "$remote_ref" ] || [ "$remote_ref" = "HEAD" ]; then
 	remote_ref="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 fi
 
@@ -148,5 +182,5 @@ if [ -f "$marker_file" ] && [ "$(cat "$marker_file")" = "$current_hash" ]; then
 	exit 0
 fi
 
-reason="The commits about to be pushed have not been independently reviewed yet (or changed since the last review). Before pushing: (1) run an independent review of the diff via the code-review skill or an Agent-tool subagent; (2) record it by running: bash .claude/hooks/mark-reviewed.sh; (3) then retry the push."
+reason="The commits about to be pushed have not been independently reviewed yet (or changed since the last review). Before pushing: (1) run an independent review of the diff via the code-review skill or an Agent-tool subagent; (2) record it by running: bash .claude/hooks/mark-reviewed.sh $remote $local_ref $remote_ref; (3) then retry the push."
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$reason"
