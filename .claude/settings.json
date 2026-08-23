@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/check-before-push.sh",
-            "if": "Bash(git push*)",
+            "if": "Bash(git *)",
             "timeout": 30
           }
         ]
