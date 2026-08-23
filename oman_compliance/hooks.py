@@ -77,10 +77,9 @@ required_apps = ["frappe/erpnext"]
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "oman_compliance.utils.jinja_methods",
-# 	"filters": "oman_compliance.utils.jinja_filters"
-# }
+jinja = {
+	"methods": ["oman_compliance.oman_compliance.utils.currency.get_exchange_rate_disclosure"],
+}
 
 # Installation
 # ------------
