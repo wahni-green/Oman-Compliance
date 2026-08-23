@@ -5,7 +5,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oman_compliance.oman_compliance.constants import VAT_BEARING_ACCOUNT_TYPES
 from oman_compliance.oman_compliance.overrides.sales_invoice import validate
-from oman_compliance.tests import get_oman_test_company, get_test_tax_account
+from oman_compliance.tests import get_non_oman_test_company, get_oman_test_company, get_test_tax_account
 
 
 class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
@@ -197,7 +197,7 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 		# This app must never block an unrelated company's invoice on a shared bench, even one
 		# that would otherwise be a clear VAT Category/tax mismatch.
 		doc = frappe._dict(
-			company="Dev Server",
+			company=get_non_oman_test_company(),
 			customer_address=None,
 			items=[frappe._dict(idx=1, item_code="_Test Item", vat_category="Zero Rated")],
 			taxes=[

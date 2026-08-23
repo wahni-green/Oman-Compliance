@@ -90,3 +90,27 @@ def get_oman_test_company() -> str:
 	).insert(ignore_permissions=True)
 
 	return company.name
+
+
+def get_non_oman_test_company() -> str:
+	"""Return the name of a Company registered somewhere other than Oman, creating a minimal one
+	if none exists yet. Used by tests confirming Oman-company-gated behavior leaves a non-Oman
+	company's transactions untouched — deliberately not a hardcoded literal like "Dev Server",
+	since that only happens to exist on this particular shared bench and wouldn't exercise
+	anything real (or even exist) elsewhere; frappe.get_cached_value() needs a genuine Company
+	record with a genuine non-Oman country to actually be exercised."""
+	existing = frappe.db.get_value("Company", {"country": ["!=", "Oman"]})
+	if existing:
+		return existing
+
+	company = frappe.get_doc(
+		{
+			"doctype": "Company",
+			"company_name": "_Test Non-Oman Gating Company",
+			"abbr": "TNOGC",
+			"default_currency": "USD",
+			"country": "United Arab Emirates",
+		}
+	).insert(ignore_permissions=True)
+
+	return company.name

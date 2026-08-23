@@ -1,12 +1,13 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from oman_compliance.oman_compliance.constants import VAT_BEARING_ACCOUNT_TYPES
 from oman_compliance.oman_compliance.overrides.purchase_invoice import (
 	set_import_of_goods_flag,
 	validate,
 	validate_reverse_charge,
 )
-from oman_compliance.tests import get_oman_test_company, get_test_tax_account
+from oman_compliance.tests import get_non_oman_test_company, get_oman_test_company, get_test_tax_account
 
 
 class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
@@ -34,6 +35,31 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 		doc = frappe._dict(
 			is_reverse_charge=1,
 			taxes=[frappe._dict(account_head=None, rate=5)],
+			items=[frappe._dict(vat_category=None)],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_reverse_charge(doc)
+
+	def test_reverse_charge_with_only_a_non_vat_charge_row_is_rejected(self):
+		# Distinct from the "no account_head at all" case above: this is a real charge row
+		# (freight, discount, withholding, ...) posted to a genuine account that just isn't a
+		# VAT-bearing type — must still be rejected as not satisfying self-accounting.
+		_, template_company = get_test_tax_account()
+		non_vat_account = frappe.db.get_value(
+			"Account",
+			{
+				"company": template_company,
+				"is_group": 0,
+				"account_type": ["not in", list(VAT_BEARING_ACCOUNT_TYPES)],
+			},
+		)
+		if not non_vat_account:
+			self.skipTest("No non-VAT-bearing account available on this bench for this test.")
+
+		doc = frappe._dict(
+			is_reverse_charge=1,
+			taxes=[frappe._dict(account_head=non_vat_account, rate=5)],
 			items=[frappe._dict(vat_category=None)],
 		)
 
@@ -97,7 +123,10 @@ class TestPurchaseInvoiceValidateGating(FrappeTestCase):
 		# Reverse Charge would otherwise reject this (checked, but no tax rows) — must not fire
 		# at all for an unrelated company on a shared bench.
 		doc = frappe._dict(
-			company="Dev Server", is_reverse_charge=1, taxes=[], items=[frappe._dict(vat_category=None)]
+			company=get_non_oman_test_company(),
+			is_reverse_charge=1,
+			taxes=[],
+			items=[frappe._dict(vat_category=None)],
 		)
 
 		validate(doc)  # should not raise

@@ -2,7 +2,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oman_compliance.oman_compliance.overrides.transaction import set_vat_category_defaults
-from oman_compliance.tests import get_oman_test_company, get_test_tax_account
+from oman_compliance.tests import get_non_oman_test_company, get_oman_test_company, get_test_tax_account
 
 
 class TestSetVatCategoryDefaults(FrappeTestCase):
@@ -30,7 +30,9 @@ class TestSetVatCategoryDefaults(FrappeTestCase):
 	def test_non_oman_company_is_left_untouched(self):
 		# This app must never touch an unrelated company's transactions on a shared bench.
 		doc = frappe._dict(
-			company="Dev Server", customer_address=None, items=[frappe._dict(vat_category=None)]
+			company=get_non_oman_test_company(),
+			customer_address=None,
+			items=[frappe._dict(vat_category=None)],
 		)
 
 		set_vat_category_defaults(doc)
