@@ -145,13 +145,10 @@ before_migrate = "oman_compliance.patches.check_version_compatibility.execute"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Company": {"validate": "oman_compliance.oman_compliance.overrides.company.validate"},
+	("Customer", "Supplier"): {"validate": "oman_compliance.oman_compliance.overrides.party.validate_trn"},
+}
 
 # Scheduled Tasks
 # ---------------
