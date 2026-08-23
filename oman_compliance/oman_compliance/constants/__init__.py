@@ -22,3 +22,17 @@ NO_TAX_VAT_CATEGORIES = {"Zero Rated", "Exempt", "Out of Scope"}
 # defaulting entirely. This is the same leading-blank-option idiom Frappe/ERPNext's own optional
 # Select fields use for exactly this reason.
 VAT_CATEGORY_SELECT_OPTIONS = "\n" + "\n".join(VAT_CATEGORIES)
+
+# Account types a Taxes and Charges row must post to for its rate/amount to plausibly be VAT,
+# rather than an unrelated charge (freight, discount, withholding, ...) that happens to sit in the
+# same child table. Matches exactly what ERPNext's own Item Tax Template validator
+# (erpnext/accounts/doctype/item_tax_template/item_tax_template.py::validate_tax_accounts) already
+# accepts as a valid VAT/tax account, so this stays consistent with what the rest of this app
+# already treats as "a real VAT row".
+VAT_BEARING_ACCOUNT_TYPES = {
+	"Tax",
+	"Chargeable",
+	"Income Account",
+	"Expense Account",
+	"Expenses Included In Valuation",
+}

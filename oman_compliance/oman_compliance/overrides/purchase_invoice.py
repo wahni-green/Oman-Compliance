@@ -1,8 +1,10 @@
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from oman_compliance.oman_compliance.constants import DEFAULT_VAT_CATEGORY
 from oman_compliance.oman_compliance.utils.company import is_oman_company
+from oman_compliance.oman_compliance.utils.tax_account import is_vat_bearing_account
 from oman_compliance.oman_compliance.utils.vat_category import get_item_tax_template_category
 
 
@@ -17,15 +19,30 @@ def validate(doc, method=None):
 def validate_reverse_charge(doc, method=None):
 	_set_default_vat_category(doc)
 
-	if doc.get("is_reverse_charge") and not doc.get("taxes"):
+	if doc.get("is_reverse_charge") and not _has_recipient_output_vat_row(doc):
 		frappe.throw(
 			_(
-				"Reverse Charge Applicable is checked but this Purchase Invoice has no VAT rows. Self-"
-				"accounting for reverse charge requires recording the output VAT (as recipient) here, not"
-				" just flagging the invoice."
+				"Reverse Charge Applicable is checked but this Purchase Invoice has no VAT row recording"
+				" the self-accounted output VAT. Self-accounting for reverse charge requires recording the"
+				" output VAT (as recipient) here, not just flagging the invoice."
 			),
 			title=_("Reverse Charge Requires VAT Rows"),
 		)
+
+
+def _has_recipient_output_vat_row(doc) -> bool:
+	"""A nonempty Taxes and Charges table isn't proof of anything — it could just as easily hold
+	an unrelated charge (freight, discount, withholding, ...) with no real VAT row at all. Requires
+	at least one row that both posts to a VAT-bearing account and actually carries a nonzero
+	rate/amount."""
+	for tax in doc.get("taxes") or []:
+		if not is_vat_bearing_account(tax.get("account_head")):
+			continue
+
+		if flt(tax.get("rate")) or flt(tax.get("tax_amount")):
+			return True
+
+	return False
 
 
 def _set_default_vat_category(doc):

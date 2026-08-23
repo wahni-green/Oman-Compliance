@@ -17,13 +17,39 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 			validate_reverse_charge(doc)
 
 	def test_reverse_charge_with_tax_rows_is_accepted(self):
+		tax_account, _ = get_test_tax_account()
 		doc = frappe._dict(
-			is_reverse_charge=1, taxes=[frappe._dict()], items=[frappe._dict(vat_category=None)]
+			is_reverse_charge=1,
+			taxes=[frappe._dict(account_head=tax_account, rate=5)],
+			items=[frappe._dict(vat_category=None)],
 		)
 
 		validate_reverse_charge(doc)  # should not raise
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
+
+	def test_reverse_charge_with_only_unrelated_tax_row_is_rejected(self):
+		# A nonempty Taxes and Charges table isn't proof of anything by itself — a row with no
+		# account_head at all (or one that isn't VAT-bearing) must still be rejected.
+		doc = frappe._dict(
+			is_reverse_charge=1,
+			taxes=[frappe._dict(account_head=None, rate=5)],
+			items=[frappe._dict(vat_category=None)],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_reverse_charge(doc)
+
+	def test_reverse_charge_with_zero_rate_vat_row_is_rejected(self):
+		tax_account, _ = get_test_tax_account()
+		doc = frappe._dict(
+			is_reverse_charge=1,
+			taxes=[frappe._dict(account_head=tax_account, rate=0, tax_amount=0)],
+			items=[frappe._dict(vat_category=None)],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_reverse_charge(doc)
 
 	def test_non_reverse_charge_purchase_is_unaffected_by_missing_tax_rows(self):
 		doc = frappe._dict(is_reverse_charge=0, taxes=[], items=[frappe._dict(vat_category=None)])

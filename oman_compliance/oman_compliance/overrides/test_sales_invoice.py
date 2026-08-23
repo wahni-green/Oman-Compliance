@@ -3,6 +3,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from oman_compliance.oman_compliance.constants import VAT_BEARING_ACCOUNT_TYPES
 from oman_compliance.oman_compliance.overrides.sales_invoice import validate
 from oman_compliance.tests import get_oman_test_company, get_test_tax_account
 
@@ -10,24 +11,64 @@ from oman_compliance.tests import get_oman_test_company, get_test_tax_account
 class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 	def setUp(self):
 		self.oman_company = get_oman_test_company()
+		self.tax_account, _ = get_test_tax_account()
 
 	def test_zero_rated_item_with_tax_charged_is_rejected(self):
 		doc = frappe._dict(
 			company=self.oman_company,
 			customer_address=None,
 			items=[frappe._dict(idx=1, item_code="_Test Item", vat_category="Zero Rated")],
-			taxes=[frappe._dict(item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}))],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
 		)
 
 		with self.assertRaises(frappe.ValidationError):
 			validate(doc)
+
+	def test_zero_rated_item_with_non_vat_charge_is_not_rejected(self):
+		# A Sales Taxes and Charges row can just as easily be an unrelated charge (freight,
+		# discount, withholding, ...) that happens to have its own nonzero item-wise rate — that
+		# must never be misread as VAT actually applied to a Zero Rated item.
+		non_vat_account = frappe.db.get_value(
+			"Account",
+			{
+				"company": get_test_tax_account()[1],
+				"is_group": 0,
+				"account_type": ["not in", list(VAT_BEARING_ACCOUNT_TYPES)],
+			},
+		)
+		if not non_vat_account:
+			self.skipTest("No non-VAT-bearing account available on this bench for this test.")
+
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer_address=None,
+			items=[frappe._dict(idx=1, item_code="_Test Item", vat_category="Zero Rated")],
+			taxes=[
+				frappe._dict(
+					account_head=non_vat_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
+		)
+
+		validate(doc)  # should not raise
 
 	def test_zero_rated_item_with_no_tax_charged_is_accepted(self):
 		doc = frappe._dict(
 			company=self.oman_company,
 			customer_address=None,
 			items=[frappe._dict(idx=1, item_code="_Test Item", vat_category="Zero Rated")],
-			taxes=[frappe._dict(item_wise_tax_detail=json.dumps({"_Test Item": [0.0, 0.0]}))],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [0.0, 0.0]}),
+				)
+			],
 		)
 
 		validate(doc)  # should not raise
@@ -39,7 +80,12 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 			company=self.oman_company,
 			customer_address=None,
 			items=[frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated")],
-			taxes=[frappe._dict(item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}))],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
 		)
 
 		validate(doc)  # should not raise
@@ -66,7 +112,12 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
 				frappe._dict(idx=2, item_code="_Test Item", vat_category="Zero Rated"),
 			],
-			taxes=[frappe._dict(item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}))],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
 		)
 
 		validate(doc)  # should not raise
@@ -76,7 +127,12 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 			company=self.oman_company,
 			customer_address=None,
 			items=[frappe._dict(idx=1, item_code="_Test Zero Rated Item", vat_category="Zero Rated")],
-			taxes=[frappe._dict(item_wise_tax_detail=json.dumps({"_Test Other Item": [5.0, 2.5]}))],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Other Item": [5.0, 2.5]}),
+				)
+			],
 		)
 
 		validate(doc)  # should not raise: the charged rate belongs to a different item
@@ -144,7 +200,12 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 			company="Dev Server",
 			customer_address=None,
 			items=[frappe._dict(idx=1, item_code="_Test Item", vat_category="Zero Rated")],
-			taxes=[frappe._dict(item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}))],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
 		)
 
 		validate(doc)  # should not raise

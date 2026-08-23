@@ -6,6 +6,7 @@ from frappe import _
 from oman_compliance.oman_compliance.constants import NO_TAX_VAT_CATEGORIES
 from oman_compliance.oman_compliance.overrides.transaction import set_vat_category_defaults
 from oman_compliance.oman_compliance.utils.company import is_oman_company
+from oman_compliance.oman_compliance.utils.tax_account import is_vat_bearing_account
 from oman_compliance.oman_compliance.utils.vat_category import get_item_tax_template_category
 
 
@@ -72,9 +73,15 @@ def _get_vat_categories_by_item_code(item_rows) -> dict:
 
 
 def _get_item_wise_tax_rates(tax_rows) -> dict:
+	"""Only aggregates rows posting to a VAT-bearing account — a Sales Taxes and Charges table can
+	just as easily hold an unrelated charge (freight, discount, withholding, ...) with its own
+	nonzero item-wise rate, which must never be misread as VAT applied to that item."""
 	rates: dict[str, float] = {}
 
 	for tax in tax_rows:
+		if not is_vat_bearing_account(tax.get("account_head")):
+			continue
+
 		detail = tax.get("item_wise_tax_detail")
 		if not detail:
 			continue
