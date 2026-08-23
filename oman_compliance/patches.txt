@@ -4,3 +4,4 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+execute:from oman_compliance.oman_compliance.setup import create_custom_fields; create_custom_fields() #1

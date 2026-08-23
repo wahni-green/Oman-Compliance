@@ -1,0 +1,84 @@
+{
+ "actions": [],
+ "autoname": "field:trn",
+ "creation": "2026-08-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "trn",
+  "status",
+  "column_break_trn",
+  "last_validated_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "trn",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "TRN",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "Unknown",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Unknown\nActive\nInactive"
+  },
+  {
+   "fieldname": "column_break_trn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Timestamp this record was created and its TRN format validated. Not refreshed on later edits — there is no live OTA status-lookup API yet (see OMAN_COMPLIANCE_ARCHITECTURE.md §3) so Status above is not auto-refreshed either.",
+   "fieldname": "last_validated_on",
+   "fieldtype": "Datetime",
+   "label": "Last Validated On",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Oman Compliance",
+ "name": "TRN",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "trn"
+}
