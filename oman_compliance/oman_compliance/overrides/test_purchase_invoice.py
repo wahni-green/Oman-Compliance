@@ -17,12 +17,20 @@ from oman_compliance.tests import (
 class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 	def setUp(self):
 		self.company = get_oman_test_company()
-		self.output_account, template_company = get_test_tax_account()
-		self.input_account = frappe.db.get_value(
-			"Account", {"name": ["!=", self.output_account], "is_group": 0, "company": template_company}
+		self.output_account, self.template_company = get_test_tax_account()
+
+	def _get_distinct_input_account(self):
+		"""Only called by tests that specifically need a second, distinct account — skipping the
+		whole class in setUp() whenever a second account isn't available would also skip tests
+		that never touch one at all (missing-configuration and defaulting tests included)."""
+		input_account = frappe.db.get_value(
+			"Account",
+			{"name": ["!=", self.output_account], "is_group": 0, "company": self.template_company},
 		)
-		if not self.input_account:
+		if not input_account:
 			self.skipTest("No second account available on this bench for this test.")
+
+		return input_account
 
 	def test_reverse_charge_without_any_vat_accounts_configured_is_rejected(self):
 		doc = frappe._dict(
@@ -46,6 +54,7 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 			validate_reverse_charge(doc)
 
 	def test_reverse_charge_with_output_and_input_rows_is_accepted(self):
+		self.input_account = self._get_distinct_input_account()
 		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.input_account)
 
 		doc = frappe._dict(
@@ -80,6 +89,7 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 	def test_reverse_charge_with_only_output_row_is_rejected(self):
 		# Both accounts configured, but the invoice itself is missing the offsetting input VAT
 		# credit row — only recording the output liability isn't complete self-accounting.
+		self.input_account = self._get_distinct_input_account()
 		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.input_account)
 
 		doc = frappe._dict(
@@ -93,6 +103,7 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 			validate_reverse_charge(doc)
 
 	def test_reverse_charge_with_only_input_row_is_rejected(self):
+		self.input_account = self._get_distinct_input_account()
 		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.input_account)
 
 		doc = frappe._dict(
@@ -108,6 +119,7 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 	def test_reverse_charge_with_only_unrelated_tax_rows_is_rejected(self):
 		# Configured, but the invoice's tax rows post somewhere else entirely — a nonempty Taxes
 		# and Charges table isn't proof of anything by itself.
+		self.input_account = self._get_distinct_input_account()
 		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.input_account)
 
 		doc = frappe._dict(
@@ -124,6 +136,7 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 		# The accounts posted to are *someone else's* configured VAT Accounts, not this invoice's
 		# own company's ones — must not be accepted just because they're valid VAT Accounts for
 		# some company.
+		self.input_account = self._get_distinct_input_account()
 		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.input_account)
 
 		other_company = get_non_oman_test_company()
@@ -152,6 +165,7 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 			validate_reverse_charge(doc)
 
 	def test_reverse_charge_with_zero_rate_vat_rows_is_rejected(self):
+		self.input_account = self._get_distinct_input_account()
 		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.input_account)
 
 		doc = frappe._dict(

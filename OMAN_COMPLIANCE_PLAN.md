@@ -612,3 +612,20 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
      for a company outside their permission scope — rather than just asserting some permission error occurs,
      to actually exercise the specific gap being closed.
   `bench run-tests --app oman_compliance` (91/91 passing) confirmed; no schema change this round.
+- 2026-08-24 — Four more review findings, three confirmed real and fixed, one already stale:
+  1. `client_scripts/item_tax_template.js`'s Prettier flag was already fixed in the prior round (verified
+     clean with `npx prettier@2.7.1 --check` again) — stale, skipped.
+  2. A real race: clicking "Fetch VAT Accounts" twice before the first server round-trip resolves let both
+     invocations read `frm.doc.taxes` before either had added a row, see the same accounts as missing, and
+     each `add_child()` a duplicate row for the same account. Fixed with an in-flight guard flag
+     (`frm._fetching_vat_accounts`) around the mutating handler.
+  3. Setup order's step 6 (reverse charge) only mentioned the Output VAT Account, not the Input VAT Account
+     `purchase_invoice.py::validate_reverse_charge()` actually also requires — updated to mention both.
+  4. `TestPurchaseInvoiceReverseCharge.setUp()` and `TestInputVatAccount.setUp()` unconditionally discovered
+     a second, distinct account and `skipTest()`-ed the *entire class* if the bench didn't have one — even
+     for tests that never touch a second account at all (missing-configuration, blank-input, defaulting
+     tests). Moved that discovery+skip into a per-class helper method (`_get_distinct_input_account()` /
+     `_configure_distinct_input_account()`) called only by the specific tests that need a genuinely distinct
+     account, so the rest keep running regardless of what accounts happen to exist on a given bench.
+  `bench run-tests --app oman_compliance` (91/91 passing, same count — no tests added or removed, only
+  re-scoped) confirmed; no schema change.

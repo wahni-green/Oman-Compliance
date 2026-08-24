@@ -48,17 +48,26 @@ class TestOutputVatAccount(FrappeTestCase):
 class TestInputVatAccount(FrappeTestCase):
 	def setUp(self):
 		self.company = get_oman_test_company()
-		self.output_account, template_company = get_test_tax_account()
-		self.input_account = frappe.db.get_value(
-			"Account", {"name": ["!=", self.output_account], "is_group": 0, "company": template_company}
+		self.output_account, self.template_company = get_test_tax_account()
+
+	def _configure_distinct_input_account(self) -> str:
+		"""Only called by tests that need a genuine second, distinct account configured — skipping
+		the whole class in setUp() whenever a second account isn't available would also skip tests
+		that never touch one at all (blank-input and unconfigured-input cases included)."""
+		input_account = frappe.db.get_value(
+			"Account",
+			{"name": ["!=", self.output_account], "is_group": 0, "company": self.template_company},
 		)
-		if not self.input_account:
+		if not input_account:
 			self.skipTest("No second account available on this bench for this test.")
 
-		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.input_account)
+		set_vat_accounts(self.company, output_account=self.output_account, input_account=input_account)
+		return input_account
 
 	def test_get_input_vat_account_returns_configured_account(self):
-		self.assertEqual(get_input_vat_account(self.company), self.input_account)
+		input_account = self._configure_distinct_input_account()
+
+		self.assertEqual(get_input_vat_account(self.company), input_account)
 
 	def test_get_input_vat_account_returns_none_when_unconfigured(self):
 		set_vat_accounts(self.company, output_account=self.output_account)  # input left unset
@@ -69,10 +78,14 @@ class TestInputVatAccount(FrappeTestCase):
 		self.assertIsNone(get_input_vat_account(None))
 
 	def test_is_input_vat_account_matches_configured_account(self):
-		self.assertTrue(is_input_vat_account(self.input_account, self.company))
+		input_account = self._configure_distinct_input_account()
+
+		self.assertTrue(is_input_vat_account(input_account, self.company))
 
 	def test_is_input_vat_account_rejects_the_output_account(self):
 		# The two must be independently checked — configuring one doesn't imply the other.
+		self._configure_distinct_input_account()
+
 		self.assertFalse(is_input_vat_account(self.output_account, self.company))
 
 	def test_is_input_vat_account_rejects_blank_account_head(self):

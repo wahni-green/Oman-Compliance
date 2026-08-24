@@ -169,7 +169,8 @@ Purchase Invoice, or nothing (`None`) for a company-currency (OMR) document.
 4. Tag any **Address** that sits inside a designated zone with its **Designated Zone** link.
 5. Leave **VAT Category** to auto-default on transactions, correcting it manually wherever the default doesn't
    match the actual supply.
-6. For imported services under reverse charge, check **Reverse Charge Applicable** on the Purchase Invoice and
-   make sure its tax template posts to the configured Output VAT Account.
+6. For imported services under reverse charge, make sure the Company's row in Oman VAT Settings' VAT
+   Accounts table has *both* its **Output VAT Account** and **Input VAT Account** set (step 2), then check
+   **Reverse Charge Applicable** on the Purchase Invoice and make sure its tax template posts to both.
 7. For purchases from abroad, make sure **Dispatch Address** is set on the Purchase Invoice so **Import of
    Goods** is detected correctly.

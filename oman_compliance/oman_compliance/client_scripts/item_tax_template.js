@@ -17,14 +17,24 @@ async function show_missing_vat_accounts_banner(frm) {
 }
 
 async function fetch_and_add_missing_vat_accounts(frm) {
-	const missing_accounts = await get_missing_vat_accounts(frm);
-	if (!missing_accounts || !missing_accounts.length) return;
+	// Guards against a second click landing while the first fetch is still awaiting its server
+	// round-trip: both would otherwise read frm.doc.taxes before either had added a row, see the
+	// same "missing" accounts, and each add_child() a duplicate row for the same account.
+	if (frm._fetching_vat_accounts) return;
+	frm._fetching_vat_accounts = true;
 
-	missing_accounts.forEach((account) => {
-		frm.add_child("taxes", { tax_type: account, tax_rate: 0 });
-	});
+	try {
+		const missing_accounts = await get_missing_vat_accounts(frm);
+		if (!missing_accounts || !missing_accounts.length) return;
 
-	frm.refresh_field("taxes");
+		missing_accounts.forEach((account) => {
+			frm.add_child("taxes", { tax_type: account, tax_rate: 0 });
+		});
+
+		frm.refresh_field("taxes");
+	} finally {
+		frm._fetching_vat_accounts = false;
+	}
 }
 
 async function get_missing_vat_accounts(frm) {
