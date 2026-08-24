@@ -39,6 +39,13 @@ def validate_reverse_charge(doc, method=None):
 			title=_("VAT Accounts Not Configured"),
 		)
 
+	# If a company's Output and Input VAT Accounts happen to be configured as the same account,
+	# one row can legitimately satisfy both checks below — intentional, not a loophole to close.
+	# Whether self-accounting is recorded as one row or two, on one account or two, is the
+	# company's own bookkeeping choice: the VAT return itself (box 2) only needs the taxable base
+	# and VAT amount, not a specific ledger structure, and this app doesn't police Add/Deduct
+	# pairing or net GL effect even when the two accounts differ. See
+	# test_reverse_charge_with_shared_output_and_input_account_accepts_a_single_row.
 	if not _has_recipient_output_vat_row(doc):
 		frappe.throw(
 			_(

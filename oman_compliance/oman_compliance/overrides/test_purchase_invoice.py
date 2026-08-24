@@ -62,6 +62,21 @@ class TestPurchaseInvoiceReverseCharge(FrappeTestCase):
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
 
+	def test_reverse_charge_with_shared_output_and_input_account_accepts_a_single_row(self):
+		# A client may deliberately net reverse-charge self-accounting through one shared account
+		# rather than two — a single row against it is intentionally sufficient (see the comment
+		# in purchase_invoice.py::validate_reverse_charge), not a loophole to close.
+		set_vat_accounts(self.company, output_account=self.output_account, input_account=self.output_account)
+
+		doc = frappe._dict(
+			company=self.company,
+			is_reverse_charge=1,
+			taxes=[frappe._dict(account_head=self.output_account, rate=5)],
+			items=[frappe._dict(vat_category=None)],
+		)
+
+		validate_reverse_charge(doc)  # should not raise
+
 	def test_reverse_charge_with_only_output_row_is_rejected(self):
 		# Both accounts configured, but the invoice itself is missing the offsetting input VAT
 		# credit row — only recording the output liability isn't complete self-accounting.

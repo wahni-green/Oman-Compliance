@@ -559,3 +559,16 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
   of the two configured, only one of the two rows present, a different company's accounts). New
   `TestInputVatAccount` test class mirrors the existing `TestOutputVatAccount` one. `bench migrate` (new
   column, idempotent) and `bench run-tests --app oman_compliance` (80/80 passing) confirmed.
+- 2026-08-24 — Confirmed, at the user's prompting, that a company configuring the *same* account for both
+  Output and Input VAT Account is supported, and a single tax row against it is deliberately enough — not
+  requiring two rows in that case. Reasoning: `is_output_vat_account()`/`is_input_vat_account()` are
+  independent equality checks against the same account value, so this already worked without any code
+  change; the actual decision was whether to *add* a stricter two-row requirement for the shared-account case,
+  and the call was not to, since this app doesn't verify `add_deduct_tax` pairing or net GL effect even when
+  the two accounts differ — the VAT return (box 2) only needs the taxable base and VAT amount, not a specific
+  ledger structure, so requiring two rows only when the accounts happen to coincide would have been an
+  arbitrary asymmetry rather than a principled rule. Added a code comment at the point in
+  `purchase_invoice.py::validate_reverse_charge()` where this could look like an unclosed loophole, plus
+  `test_reverse_charge_with_shared_output_and_input_account_accepts_a_single_row()` to lock the behavior in as
+  intentional rather than leaving it as an untested side effect. `bench run-tests --app oman_compliance`
+  (81/81 passing) confirmed.

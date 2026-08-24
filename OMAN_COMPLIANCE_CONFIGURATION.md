@@ -112,6 +112,10 @@ output VAT as the recipient (return box 2).
   only one side is rejected. The app does not generate these rows itself — set up a Purchase Taxes and Charges
   template (or Tax Category) with both rows, the same way you would configure any other self-accounting tax
   scenario.
+  - **If a company's Output and Input VAT Accounts are configured as the same account**, a single row posted
+    to it satisfies both requirements at once — this is intentional, not a loophole. Whether self-accounting
+    is recorded as one row or two, on one account or two, is your own bookkeeping choice; the VAT return
+    itself only needs the taxable base and VAT amount, not a specific ledger structure.
 - No automatic detection: the app does not guess this checkbox from the supplier's country or any other
   heuristic, since reverse charge applies specifically to imported *services* — an address-based guess would
   also misfire on imported *goods*, which belong in a different return box (imports of goods, not reverse
