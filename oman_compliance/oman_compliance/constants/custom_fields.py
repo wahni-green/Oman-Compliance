@@ -100,6 +100,15 @@ CUSTOM_FIELDS = {
 			" that can't tell Zero Rated apart from Exempt or Out of Scope (all commonly 0%).",
 			"module": MODULE,
 		},
+		{
+			"fieldname": "fetch_vat_accounts",
+			"label": "Fetch VAT Accounts",
+			"fieldtype": "Button",
+			"insert_after": "section_break_5",
+			"description": "Adds a row below for each of this Company's configured Output/Input VAT"
+			" Accounts (Oman VAT Settings) not already present here.",
+			"module": MODULE,
+		},
 	],
 	"Purchase Invoice": [
 		{

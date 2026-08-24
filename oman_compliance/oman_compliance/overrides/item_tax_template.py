@@ -2,7 +2,12 @@ import frappe
 from frappe import _
 
 from oman_compliance.oman_compliance.constants import NO_TAX_VAT_CATEGORIES
-from oman_compliance.oman_compliance.utils.tax_account import is_input_vat_account, is_output_vat_account
+from oman_compliance.oman_compliance.utils.tax_account import (
+	get_input_vat_account,
+	get_output_vat_account,
+	is_input_vat_account,
+	is_output_vat_account,
+)
 
 
 def validate(doc, method=None):
@@ -31,3 +36,16 @@ def validate_vat_category_tax_consistency(doc):
 				).format(row.idx, doc.vat_category, row.tax_rate, frappe.bold(row.tax_type)),
 				title=_("VAT Category Mismatch"),
 			)
+
+
+@frappe.whitelist()
+def get_vat_accounts_for_template(company: str) -> list[str]:
+	"""This company's configured Output/Input VAT Accounts (Oman VAT Settings), skipping whichever
+	aren't set — used by the "Fetch VAT Accounts" button to add whichever of them are missing from
+	the template's own `taxes` rows. Mirrors India Compliance's own
+	gst_india/overrides/item_tax_template.py::get_valid_gst_accounts()."""
+	frappe.has_permission("Item Tax Template", "read", throw=True)
+
+	return [
+		account for account in (get_output_vat_account(company), get_input_vat_account(company)) if account
+	]

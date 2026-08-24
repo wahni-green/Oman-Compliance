@@ -1,7 +1,10 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oman_compliance.oman_compliance.overrides.item_tax_template import validate
+from oman_compliance.oman_compliance.overrides.item_tax_template import (
+	get_vat_accounts_for_template,
+	validate,
+)
 from oman_compliance.tests import get_oman_test_company, get_test_tax_account, set_vat_accounts
 
 
@@ -79,3 +82,31 @@ class TestItemTaxTemplateVatCategoryValidation(FrappeTestCase):
 		)
 
 		validate(doc)  # should not raise: no company to check configured accounts against
+
+
+class TestGetVatAccountsForTemplate(FrappeTestCase):
+	def test_returns_configured_accounts(self):
+		company = get_oman_test_company()
+		output_account, template_company = get_test_tax_account()
+		input_account = frappe.db.get_value(
+			"Account", {"name": ["!=", output_account], "is_group": 0, "company": template_company}
+		)
+		if not input_account:
+			self.skipTest("No second account available on this bench for this test.")
+
+		set_vat_accounts(company, output_account=output_account, input_account=input_account)
+
+		self.assertEqual(set(get_vat_accounts_for_template(company)), {output_account, input_account})
+
+	def test_returns_empty_list_when_unconfigured(self):
+		other_company = frappe.get_doc(
+			{
+				"doctype": "Company",
+				"company_name": "_Test Unconfigured Template Company",
+				"abbr": "TUTC",
+				"default_currency": "OMR",
+				"country": "Oman",
+			}
+		).insert(ignore_permissions=True)
+
+		self.assertEqual(get_vat_accounts_for_template(other_company.name), [])
