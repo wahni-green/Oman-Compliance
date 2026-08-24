@@ -116,12 +116,18 @@ def get_non_oman_test_company() -> str:
 	return company.name
 
 
-def set_output_vat_account(company: str, account: str) -> None:
+def set_vat_accounts(
+	company: str, output_account: str | None = None, input_account: str | None = None
+) -> None:
 	"""Configure Oman VAT Settings' per-company `vat_accounts` table with the given company's
-	Output VAT Account, replacing any existing row for that company. Test-only: relies on
-	FrappeTestCase's per-test rollback to undo it afterward, matching how other Single-doctype
-	settings are exercised elsewhere in this test suite."""
+	Output/Input VAT Accounts (either may be omitted to leave that one unset), replacing any
+	existing row for that company. Test-only: relies on FrappeTestCase's per-test rollback to undo
+	it afterward, matching how other Single-doctype settings are exercised elsewhere in this test
+	suite."""
 	settings = frappe.get_single("Oman VAT Settings")
 	settings.vat_accounts = [row for row in settings.vat_accounts if row.company != company]
-	settings.append("vat_accounts", {"company": company, "output_vat_account": account})
+	settings.append(
+		"vat_accounts",
+		{"company": company, "output_vat_account": output_account, "input_vat_account": input_account},
+	)
 	settings.save(ignore_permissions=True)

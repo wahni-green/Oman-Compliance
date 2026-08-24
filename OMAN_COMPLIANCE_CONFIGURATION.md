@@ -38,14 +38,19 @@ the site's default currency**:
 ## VAT Accounts (Oman VAT Settings)
 
 Desk → **Oman VAT Settings** → **VAT Accounts** table — one row per company, naming that company's **Output
-VAT Account**. This is what identifies a Sales/Purchase Taxes and Charges row as genuinely VAT, rather than
-guessing from the account's generic type (Chargeable, Expense Account, ...), which is also shared by unrelated
-charges like freight, discount, or withholding. Matches how India Compliance's GST Settings names its GST
-accounts explicitly per company, instead of inferring them.
+VAT Account** and **Input VAT Account**. This is what identifies a Sales/Purchase Taxes and Charges row as
+genuinely VAT, rather than guessing from the account's generic type (Chargeable, Expense Account, ...), which
+is also shared by unrelated charges like freight, discount, or withholding. Matches how India Compliance's GST
+Settings names its GST accounts explicitly per company, instead of inferring them.
 
-- **Configure this before relying on VAT Category validation or Reverse Charge** (below) — without a row for a
-  company, neither check can identify VAT at all: the VAT Category mismatch check simply won't fire, and
-  Reverse Charge Applicable will refuse to save at all until it's configured.
+- **Output VAT Account** — required to save a row at all. Used for ordinary Sales Invoice output VAT *and*
+  the self-accounted output VAT liability on a Reverse Charge Purchase Invoice.
+- **Input VAT Account** — optional; only needed if this company uses Reverse Charge Applicable. Used for the
+  offsetting input VAT credit self-accounting requires. Sales Invoice validation never looks at this one.
+- **Configure both before using Reverse Charge Applicable, and at least the Output VAT Account before relying
+  on VAT Category validation** — without a company's row, neither check can identify VAT at all: the VAT
+  Category mismatch check simply won't fire, and Reverse Charge Applicable will refuse to save until both
+  accounts are configured.
 - One row per company — a duplicate company row is rejected on save.
 
 ## Designated Zones
@@ -72,6 +77,15 @@ itself.
   Zero Rated", "Oman VAT 0% - Exempt", set each template's own **VAT Category** field to match. This is the
   strongest signal the app uses — it drives both defaulting and validation below — but it's optional; a
   template can be left without one (e.g. non-Oman templates on a shared site).
+- **Item Tax Template itself is validated too**, the moment you save it: a template marked Zero Rated,
+  Exempt, or Out of Scope is rejected if any of its own `taxes` rows post a nonzero rate to the company's
+  configured Output or Input VAT Account (see VAT Accounts, below) — catching the mistake before the template
+  is ever used on a real transaction, not just later when an invoice using it gets rejected.
+- **Fetch VAT Accounts button:** on Item Tax Template, click **Fetch VAT Accounts** to auto-add a row for
+  each of the Company's configured Output/Input VAT Accounts that isn't already in the table (new rows are
+  added at 0% — fill in the actual rate yourself, since there's no confirmed "standard rate" setting anywhere
+  for the app to guess from). A banner also appears on the form if any configured account is missing from the
+  template.
 - **Auto-default, in priority order:** if a row's VAT Category is left blank, it's set from (1) its own **Item
   Tax Template**'s VAT Category, if that template declares one; else (2) **Zero Rated**, if the transaction's
   billing address, shipping address, or dispatch address links to an *active* Designated Zone; else (3)
@@ -100,11 +114,17 @@ A **Reverse Charge Applicable** checkbox is available on Purchase Invoice, next 
 field — for imported services and other reverse-charge supplies where this company must self-account for
 output VAT as the recipient (return box 2).
 
-- Checking it **requires the company's Output VAT Account to be configured** (Oman VAT Settings → VAT
-  Accounts, above) and **at least one nonzero VAT row posted to that exact account** on the invoice's Taxes
-  and Charges table. The app does not generate this row itself — set up a Purchase Taxes and Charges template
-  (or Tax Category) that posts to the configured Output VAT Account, the same way you would configure any
-  other self-accounting tax scenario.
+- Checking it **requires both the company's Output and Input VAT Accounts to be configured** (Oman VAT
+  Settings → VAT Accounts, above) and **at least one nonzero VAT row posted to each** on the invoice's Taxes
+  and Charges table — one row recording the self-accounted output VAT liability (posted to the Output VAT
+  Account), and one recording the offsetting input VAT credit (posted to the Input VAT Account). Recording
+  only one side is rejected. The app does not generate these rows itself — set up a Purchase Taxes and Charges
+  template (or Tax Category) with both rows, the same way you would configure any other self-accounting tax
+  scenario.
+  - **If a company's Output and Input VAT Accounts are configured as the same account**, a single row posted
+    to it satisfies both requirements at once — this is intentional, not a loophole. Whether self-accounting
+    is recorded as one row or two, on one account or two, is your own bookkeeping choice; the VAT return
+    itself only needs the taxable base and VAT amount, not a specific ledger structure.
 - No automatic detection: the app does not guess this checkbox from the supplier's country or any other
   heuristic, since reverse charge applies specifically to imported *services* — an address-based guess would
   also misfire on imported *goods*, which belong in a different return box (imports of goods, not reverse
@@ -141,14 +161,16 @@ Purchase Invoice, or nothing (`None`) for a company-currency (OMR) document.
 ## Suggested setup order for a new company
 
 1. Set the Company's **TRN**.
-2. Add a row for the Company in Oman VAT Settings' **VAT Accounts** table, naming its **Output VAT Account** —
-   required before VAT Category validation or Reverse Charge Applicable will do anything useful.
+2. Add a row for the Company in Oman VAT Settings' **VAT Accounts** table, naming its **Output VAT Account**
+   (required before VAT Category validation does anything useful) and, if this company uses reverse charge,
+   its **Input VAT Account** too (required before Reverse Charge Applicable will save at all).
 3. Review the **Oman VAT Settings** thresholds (defaults are usually correct; they're OMR-fixed regardless of
    company currency).
 4. Tag any **Address** that sits inside a designated zone with its **Designated Zone** link.
 5. Leave **VAT Category** to auto-default on transactions, correcting it manually wherever the default doesn't
    match the actual supply.
-6. For imported services under reverse charge, check **Reverse Charge Applicable** on the Purchase Invoice and
-   make sure its tax template posts to the configured Output VAT Account.
+6. For imported services under reverse charge, make sure the Company's row in Oman VAT Settings' VAT
+   Accounts table has *both* its **Output VAT Account** and **Input VAT Account** set (step 2), then check
+   **Reverse Charge Applicable** on the Purchase Invoice and make sure its tax template posts to both.
 7. For purchases from abroad, make sure **Dispatch Address** is set on the Purchase Invoice so **Import of
    Goods** is detected correctly.

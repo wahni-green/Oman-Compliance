@@ -46,7 +46,7 @@ required_apps = ["frappe/erpnext"]
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Item Tax Template": "oman_compliance/client_scripts/item_tax_template.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -153,6 +153,9 @@ doc_events = {
 	"Sales Invoice": {"validate": "oman_compliance.oman_compliance.overrides.sales_invoice.validate"},
 	"Purchase Invoice": {
 		"validate": "oman_compliance.oman_compliance.overrides.purchase_invoice.validate",
+	},
+	"Item Tax Template": {
+		"validate": "oman_compliance.oman_compliance.overrides.item_tax_template.validate",
 	},
 }
 

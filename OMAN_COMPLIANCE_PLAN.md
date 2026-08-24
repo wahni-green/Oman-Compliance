@@ -138,15 +138,19 @@ No transaction logic yet — just the reference data and settings everything els
 - [x] `Oman VAT Account` child doctype (`company` + `output_vat_account`) on a new `Oman VAT Settings.vat_accounts`
       table — explicitly configured per company, replacing an earlier account-type-heuristic approach entirely
       (see status log). Matches India Compliance's GST Settings `gst_accounts` child table pattern exactly.
-- [ ] **TODO, not yet implemented** — Item Tax Template validation against the configured Output VAT Account,
-      mirroring India Compliance's `gst_india/overrides/item_tax_template.py::validate_tax_rates()` (checks the
-      template's own tax rows against the company's configured GST accounts, throws on a mismatch rather than
-      silently allowing a wrong account). See the TODO comment in `utils/tax_account.py` for the exact reference.
-- [ ] **TODO, not yet implemented** — a "Fetch Account" button on Item Tax Template (client script + a new
-      whitelisted method) that auto-adds the missing `taxes` row for the company's configured Output VAT
-      Account, mirroring India Compliance's `gst_india/client_scripts/item_tax_template.js`
-      (`fetch_and_update_missing_gst_accounts()`) and `overrides/item_tax_template.py::get_valid_gst_accounts()`.
-      See the TODO comment in `utils/tax_account.py` for the exact reference.
+- [x] Item Tax Template validation against the configured Output/Input VAT Accounts —
+      `overrides/item_tax_template.py::validate_vat_category_tax_consistency()`, wired to `Item Tax Template`'s
+      `validate` doc_event. Catches a Zero Rated/Exempt/Out of Scope template that still posts a nonzero rate to
+      the company's configured Output or Input VAT Account, at template-definition time rather than only
+      discovering it later on an invoice.
+- [x] A "Fetch VAT Accounts" button on Item Tax Template — a new `fetch_vat_accounts` Button custom field
+      (`constants/custom_fields.py`) plus `client_scripts/item_tax_template.js` (wired via `hooks.py`'s
+      `doctype_js`), calling the new whitelisted `overrides/item_tax_template.py::get_vat_accounts_for_template()`
+      to add whichever of the company's configured Output/Input VAT Accounts are missing from the template's
+      own `taxes` rows (new row's rate left at 0 — no assumed VAT rate exists anywhere to default it from).
+      Mirrors India Compliance's `gst_india/client_scripts/item_tax_template.js` +
+      `overrides/item_tax_template.py::get_valid_gst_accounts()` exactly, including the "missing accounts"
+      dashboard banner shown on form refresh.
 
 ---
 
@@ -542,3 +546,86 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
     `item_tax_template.py::validate_tax_rates()`; (2) a "Fetch Account" button on Item Tax Template that
     auto-adds the missing row, mirroring India Compliance's `client_scripts/item_tax_template.js` +
     `get_valid_gst_accounts()`. See Phase 2's checklist above for both.
+- 2026-08-24 — Split `Oman VAT Account`'s single `output_vat_account` field into separate **Output VAT
+  Account** (unchanged, still `reqd`) and **Input VAT Account** (new, optional — only needed by companies
+  that use Reverse Charge) columns, at the user's request after discussing whether one shared account was
+  enough. `utils/tax_account.py` gained `get_input_vat_account(company)` / `is_input_vat_account(account_head,
+  company)` alongside the existing output-side pair, both now routed through a shared `_get_vat_account()`
+  helper. `purchase_invoice.py::validate_reverse_charge()` now requires *both* accounts to be configured (one
+  combined error listing whichever is missing) and *both* a nonzero row on the Output VAT Account (the
+  self-accounted output liability) and a separate nonzero row on the Input VAT Account (the offsetting input
+  credit) — restoring the two-sided rigor the earlier Add/Deduct/rate-matching heuristics were reaching for,
+  but now correctly grounded in explicit per-account configuration rather than a guess. Sales Invoice is
+  unaffected — it has no "input" side to check. Test helper renamed `set_output_vat_account()` →
+  `set_vat_accounts(company, output_account=None, input_account=None)`; all call sites and the
+  `TestPurchaseInvoiceReverseCharge` suite rewritten around the two-account requirement (new cases: only one
+  of the two configured, only one of the two rows present, a different company's accounts). New
+  `TestInputVatAccount` test class mirrors the existing `TestOutputVatAccount` one. `bench migrate` (new
+  column, idempotent) and `bench run-tests --app oman_compliance` (80/80 passing) confirmed.
+- 2026-08-24 — Confirmed, at the user's prompting, that a company configuring the *same* account for both
+  Output and Input VAT Account is supported, and a single tax row against it is deliberately enough — not
+  requiring two rows in that case. Reasoning: `is_output_vat_account()`/`is_input_vat_account()` are
+  independent equality checks against the same account value, so this already worked without any code
+  change; the actual decision was whether to *add* a stricter two-row requirement for the shared-account case,
+  and the call was not to, since this app doesn't verify `add_deduct_tax` pairing or net GL effect even when
+  the two accounts differ — the VAT return (box 2) only needs the taxable base and VAT amount, not a specific
+  ledger structure, so requiring two rows only when the accounts happen to coincide would have been an
+  arbitrary asymmetry rather than a principled rule. Added a code comment at the point in
+  `purchase_invoice.py::validate_reverse_charge()` where this could look like an unclosed loophole, plus
+  `test_reverse_charge_with_shared_output_and_input_account_accepts_a_single_row()` to lock the behavior in as
+  intentional rather than leaving it as an untested side effect. `bench run-tests --app oman_compliance`
+  (81/81 passing) confirmed.
+- 2026-08-24 — Completed both TODOs deferred earlier in Phase 2 (marked "ToDo" at the time on explicit
+  instruction not to implement yet):
+  1. `overrides/item_tax_template.py::validate()` — a new `Item Tax Template` `validate` doc_event, checking
+     the same VAT-category/tax-rate consistency `sales_invoice.py` already checks, but at template-definition
+     time. Re-checked against a real Item Tax Template doc (not just `frappe._dict` mocks, since the field
+     access pattern — `doc.get("taxes")` rows with a plain `.tax_rate` attribute — matches how a real
+     controller doc behaves) via the new colocated `test_item_tax_template.py`.
+  2. A new `fetch_vat_accounts` Button custom field on Item Tax Template plus
+     `client_scripts/item_tax_template.js`, wired via `hooks.py`'s `doctype_js`. Verified the exact file
+     resolution mechanism before trusting it — read Frappe core's
+     `frappe.desk.form.meta.get_code_files_via_hooks()` (resolves each `doctype_js` path via
+     `frappe.get_app_path(app_name, *path_parts)`, i.e. relative to the app's *top-level* Python package
+     folder) and confirmed with `bench execute frappe.desk.form.meta.get_code_files_via_hooks --args
+     '["doctype_js", "Item Tax Template"]'` that `"oman_compliance/client_scripts/item_tax_template.js"`
+     resolves to the actual file path in this app's nested module folder before assuming it would just work.
+     Unlike India Compliance's version (which computes a per-row rate from the template's own `gst_rate`
+     field, split for intra-state CGST+SGST vs. inter-state IGST), this app has no such template-level rate
+     field and no confirmed "the standard rate is X%" setting anywhere to default from — new rows the button
+     adds are left at 0% rate for the user to fill in, rather than guessing a percentage.
+  `bench migrate` (new custom field + doc_events + doctype_js hook, idempotent) and `bench run-tests --app
+  oman_compliance` (89/89 passing) confirmed.
+- 2026-08-24 — Two review findings on `get_vat_accounts_for_template()`, both confirmed real and fixed:
+  1. Returned `[output_account, input_account]` unconditionally — when a company deliberately configures the
+     *same* account for both (a supported case, see the entry above on shared accounts), this returned the
+     same account twice, and the client's `filter()` doesn't de-duplicate, so the "Fetch VAT Accounts" button
+     added two identical child rows. Fixed with `dict.fromkeys(...)` to de-duplicate while preserving order.
+  2. Only checked doctype-level `Item Tax Template: read` permission, not whether the calling user may
+     actually read the specific `company` passed in — any user with generic Item Tax Template read access
+     could pass an arbitrary company name and get that company's configured VAT account names back,
+     bypassing Frappe's per-company User Permission restrictions entirely. This exact gap is inherited
+     directly from India Compliance's own `get_valid_gst_accounts()`, which has the identical pattern — not an
+     excuse to keep it. Fixed by adding `frappe.has_permission("Company", "read", doc=company, throw=True)`.
+     New test creates a real restricted user (Accounts User role + a `User Permission` limiting them to a
+     *different* company) and confirms `get_vat_accounts_for_template()` now raises `frappe.PermissionError`
+     for a company outside their permission scope — rather than just asserting some permission error occurs,
+     to actually exercise the specific gap being closed.
+  `bench run-tests --app oman_compliance` (91/91 passing) confirmed; no schema change this round.
+- 2026-08-24 — Four more review findings, three confirmed real and fixed, one already stale:
+  1. `client_scripts/item_tax_template.js`'s Prettier flag was already fixed in the prior round (verified
+     clean with `npx prettier@2.7.1 --check` again) — stale, skipped.
+  2. A real race: clicking "Fetch VAT Accounts" twice before the first server round-trip resolves let both
+     invocations read `frm.doc.taxes` before either had added a row, see the same accounts as missing, and
+     each `add_child()` a duplicate row for the same account. Fixed with an in-flight guard flag
+     (`frm._fetching_vat_accounts`) around the mutating handler.
+  3. Setup order's step 6 (reverse charge) only mentioned the Output VAT Account, not the Input VAT Account
+     `purchase_invoice.py::validate_reverse_charge()` actually also requires — updated to mention both.
+  4. `TestPurchaseInvoiceReverseCharge.setUp()` and `TestInputVatAccount.setUp()` unconditionally discovered
+     a second, distinct account and `skipTest()`-ed the *entire class* if the bench didn't have one — even
+     for tests that never touch a second account at all (missing-configuration, blank-input, defaulting
+     tests). Moved that discovery+skip into a per-class helper method (`_get_distinct_input_account()` /
+     `_configure_distinct_input_account()`) called only by the specific tests that need a genuinely distinct
+     account, so the rest keep running regardless of what accounts happen to exist on a given bench.
+  `bench run-tests --app oman_compliance` (91/91 passing, same count — no tests added or removed, only
+  re-scoped) confirmed; no schema change.

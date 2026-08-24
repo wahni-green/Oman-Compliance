@@ -6,7 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "company",
-  "output_vat_account"
+  "output_vat_account",
+  "input_vat_account"
  ],
  "fields": [
   {
@@ -25,6 +26,14 @@
    "label": "Output VAT Account",
    "options": "Account",
    "reqd": 1
+  },
+  {
+   "description": "The account this company posts recoverable input VAT to — on a Purchase Invoice, the offsetting input VAT credit for a self-accounted Reverse Charge purchase. Only required if this company uses Reverse Charge Applicable; not used for ordinary Sales Invoice validation.",
+   "fieldname": "input_vat_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Input VAT Account",
+   "options": "Account"
   }
  ],
  "index_web_pages_for_search": 1,
