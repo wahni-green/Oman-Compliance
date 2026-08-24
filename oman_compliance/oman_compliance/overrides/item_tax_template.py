@@ -41,11 +41,18 @@ def validate_vat_category_tax_consistency(doc):
 @frappe.whitelist()
 def get_vat_accounts_for_template(company: str) -> list[str]:
 	"""This company's configured Output/Input VAT Accounts (Oman VAT Settings), skipping whichever
-	aren't set — used by the "Fetch VAT Accounts" button to add whichever of them are missing from
+	aren't set and de-duplicated (a company may configure the same account for both — see
+	OMAN_COMPLIANCE_PLAN.md's status log — which must not surface as two rows for the same
+	account) — used by the "Fetch VAT Accounts" button to add whichever of them are missing from
 	the template's own `taxes` rows. Mirrors India Compliance's own
 	gst_india/overrides/item_tax_template.py::get_valid_gst_accounts()."""
 	frappe.has_permission("Item Tax Template", "read", throw=True)
+	frappe.has_permission("Company", "read", doc=company, throw=True)
 
-	return [
-		account for account in (get_output_vat_account(company), get_input_vat_account(company)) if account
-	]
+	return list(
+		dict.fromkeys(
+			account
+			for account in (get_output_vat_account(company), get_input_vat_account(company))
+			if account
+		)
+	)

@@ -596,3 +596,19 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
      adds are left at 0% rate for the user to fill in, rather than guessing a percentage.
   `bench migrate` (new custom field + doc_events + doctype_js hook, idempotent) and `bench run-tests --app
   oman_compliance` (89/89 passing) confirmed.
+- 2026-08-24 — Two review findings on `get_vat_accounts_for_template()`, both confirmed real and fixed:
+  1. Returned `[output_account, input_account]` unconditionally — when a company deliberately configures the
+     *same* account for both (a supported case, see the entry above on shared accounts), this returned the
+     same account twice, and the client's `filter()` doesn't de-duplicate, so the "Fetch VAT Accounts" button
+     added two identical child rows. Fixed with `dict.fromkeys(...)` to de-duplicate while preserving order.
+  2. Only checked doctype-level `Item Tax Template: read` permission, not whether the calling user may
+     actually read the specific `company` passed in — any user with generic Item Tax Template read access
+     could pass an arbitrary company name and get that company's configured VAT account names back,
+     bypassing Frappe's per-company User Permission restrictions entirely. This exact gap is inherited
+     directly from India Compliance's own `get_valid_gst_accounts()`, which has the identical pattern — not an
+     excuse to keep it. Fixed by adding `frappe.has_permission("Company", "read", doc=company, throw=True)`.
+     New test creates a real restricted user (Accounts User role + a `User Permission` limiting them to a
+     *different* company) and confirms `get_vat_accounts_for_template()` now raises `frappe.PermissionError`
+     for a company outside their permission scope — rather than just asserting some permission error occurs,
+     to actually exercise the specific gap being closed.
+  `bench run-tests --app oman_compliance` (91/91 passing) confirmed; no schema change this round.

@@ -5,7 +5,12 @@ from oman_compliance.oman_compliance.overrides.item_tax_template import (
 	get_vat_accounts_for_template,
 	validate,
 )
-from oman_compliance.tests import get_oman_test_company, get_test_tax_account, set_vat_accounts
+from oman_compliance.tests import (
+	get_non_oman_test_company,
+	get_oman_test_company,
+	get_test_tax_account,
+	set_vat_accounts,
+)
 
 
 class TestItemTaxTemplateVatCategoryValidation(FrappeTestCase):
@@ -110,3 +115,46 @@ class TestGetVatAccountsForTemplate(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 		self.assertEqual(get_vat_accounts_for_template(other_company.name), [])
+
+	def test_returns_deduplicated_list_when_output_and_input_are_the_same_account(self):
+		# A company may deliberately configure the same account for both (see
+		# OMAN_COMPLIANCE_PLAN.md) — the button must add one row for it, not two.
+		company = get_oman_test_company()
+		account, _ = get_test_tax_account()
+
+		set_vat_accounts(company, output_account=account, input_account=account)
+
+		self.assertEqual(get_vat_accounts_for_template(company), [account])
+
+	def test_raises_for_a_company_the_user_has_no_permission_to_read(self):
+		# A user with generic Item Tax Template read access must not be able to read another
+		# company's configured VAT accounts just by naming that company.
+		company = get_oman_test_company()
+		other_company = get_non_oman_test_company()
+		output_account, _ = get_test_tax_account()
+		set_vat_accounts(company, output_account=output_account)
+
+		test_user_email = "_test_vat_account_permission@example.com"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": test_user_email,
+				"first_name": "Test VAT Account Permission",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Accounts User"}],
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "User Permission",
+				"user": user.name,
+				"allow": "Company",
+				"for_value": other_company,
+			}
+		).insert(ignore_permissions=True)
+
+		frappe.set_user(user.name)
+		self.addCleanup(frappe.set_user, "Administrator")
+
+		with self.assertRaises(frappe.PermissionError):
+			get_vat_accounts_for_template(company)
