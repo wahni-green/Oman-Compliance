@@ -138,16 +138,19 @@ No transaction logic yet — just the reference data and settings everything els
 - [x] `Oman VAT Account` child doctype (`company` + `output_vat_account`) on a new `Oman VAT Settings.vat_accounts`
       table — explicitly configured per company, replacing an earlier account-type-heuristic approach entirely
       (see status log). Matches India Compliance's GST Settings `gst_accounts` child table pattern exactly.
-- [ ] **TODO, not yet implemented** — Item Tax Template validation against the configured Output/Input VAT
-      Accounts, mirroring India Compliance's `gst_india/overrides/item_tax_template.py::validate_tax_rates()`
-      (checks the template's own tax rows against the company's configured GST accounts, throws on a mismatch
-      rather than silently allowing a wrong account). See the TODO comment in `utils/tax_account.py` for the
-      exact reference.
-- [ ] **TODO, not yet implemented** — a "Fetch Account" button on Item Tax Template (client script + a new
-      whitelisted method) that auto-adds the missing `taxes` row(s) for the company's configured Output/Input
-      VAT Accounts, mirroring India Compliance's `gst_india/client_scripts/item_tax_template.js`
-      (`fetch_and_update_missing_gst_accounts()`) and `overrides/item_tax_template.py::get_valid_gst_accounts()`.
-      See the TODO comment in `utils/tax_account.py` for the exact reference.
+- [x] Item Tax Template validation against the configured Output/Input VAT Accounts —
+      `overrides/item_tax_template.py::validate_vat_category_tax_consistency()`, wired to `Item Tax Template`'s
+      `validate` doc_event. Catches a Zero Rated/Exempt/Out of Scope template that still posts a nonzero rate to
+      the company's configured Output or Input VAT Account, at template-definition time rather than only
+      discovering it later on an invoice.
+- [x] A "Fetch VAT Accounts" button on Item Tax Template — a new `fetch_vat_accounts` Button custom field
+      (`constants/custom_fields.py`) plus `client_scripts/item_tax_template.js` (wired via `hooks.py`'s
+      `doctype_js`), calling the new whitelisted `overrides/item_tax_template.py::get_vat_accounts_for_template()`
+      to add whichever of the company's configured Output/Input VAT Accounts are missing from the template's
+      own `taxes` rows (new row's rate left at 0 — no assumed VAT rate exists anywhere to default it from).
+      Mirrors India Compliance's `gst_india/client_scripts/item_tax_template.js` +
+      `overrides/item_tax_template.py::get_valid_gst_accounts()` exactly, including the "missing accounts"
+      dashboard banner shown on form refresh.
 
 ---
 
@@ -572,3 +575,24 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
   `test_reverse_charge_with_shared_output_and_input_account_accepts_a_single_row()` to lock the behavior in as
   intentional rather than leaving it as an untested side effect. `bench run-tests --app oman_compliance`
   (81/81 passing) confirmed.
+- 2026-08-24 — Completed both TODOs deferred earlier in Phase 2 (marked "ToDo" at the time on explicit
+  instruction not to implement yet):
+  1. `overrides/item_tax_template.py::validate()` — a new `Item Tax Template` `validate` doc_event, checking
+     the same VAT-category/tax-rate consistency `sales_invoice.py` already checks, but at template-definition
+     time. Re-checked against a real Item Tax Template doc (not just `frappe._dict` mocks, since the field
+     access pattern — `doc.get("taxes")` rows with a plain `.tax_rate` attribute — matches how a real
+     controller doc behaves) via the new colocated `test_item_tax_template.py`.
+  2. A new `fetch_vat_accounts` Button custom field on Item Tax Template plus
+     `client_scripts/item_tax_template.js`, wired via `hooks.py`'s `doctype_js`. Verified the exact file
+     resolution mechanism before trusting it — read Frappe core's
+     `frappe.desk.form.meta.get_code_files_via_hooks()` (resolves each `doctype_js` path via
+     `frappe.get_app_path(app_name, *path_parts)`, i.e. relative to the app's *top-level* Python package
+     folder) and confirmed with `bench execute frappe.desk.form.meta.get_code_files_via_hooks --args
+     '["doctype_js", "Item Tax Template"]'` that `"oman_compliance/client_scripts/item_tax_template.js"`
+     resolves to the actual file path in this app's nested module folder before assuming it would just work.
+     Unlike India Compliance's version (which computes a per-row rate from the template's own `gst_rate`
+     field, split for intra-state CGST+SGST vs. inter-state IGST), this app has no such template-level rate
+     field and no confirmed "the standard rate is X%" setting anywhere to default from — new rows the button
+     adds are left at 0% rate for the user to fill in, rather than guessing a percentage.
+  `bench migrate` (new custom field + doc_events + doctype_js hook, idempotent) and `bench run-tests --app
+  oman_compliance` (89/89 passing) confirmed.

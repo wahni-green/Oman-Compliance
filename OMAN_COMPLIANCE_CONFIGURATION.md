@@ -77,6 +77,15 @@ itself.
   Zero Rated", "Oman VAT 0% - Exempt", set each template's own **VAT Category** field to match. This is the
   strongest signal the app uses — it drives both defaulting and validation below — but it's optional; a
   template can be left without one (e.g. non-Oman templates on a shared site).
+- **Item Tax Template itself is validated too**, the moment you save it: a template marked Zero Rated,
+  Exempt, or Out of Scope is rejected if any of its own `taxes` rows post a nonzero rate to the company's
+  configured Output or Input VAT Account (see VAT Accounts, below) — catching the mistake before the template
+  is ever used on a real transaction, not just later when an invoice using it gets rejected.
+- **Fetch VAT Accounts button:** on Item Tax Template, click **Fetch VAT Accounts** to auto-add a row for
+  each of the Company's configured Output/Input VAT Accounts that isn't already in the table (new rows are
+  added at 0% — fill in the actual rate yourself, since there's no confirmed "standard rate" setting anywhere
+  for the app to guess from). A banner also appears on the form if any configured account is missing from the
+  template.
 - **Auto-default, in priority order:** if a row's VAT Category is left blank, it's set from (1) its own **Item
   Tax Template**'s VAT Category, if that template declares one; else (2) **Zero Rated**, if the transaction's
   billing address, shipping address, or dispatch address links to an *active* Designated Zone; else (3)
