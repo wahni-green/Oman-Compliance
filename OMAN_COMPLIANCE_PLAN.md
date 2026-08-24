@@ -138,13 +138,14 @@ No transaction logic yet — just the reference data and settings everything els
 - [x] `Oman VAT Account` child doctype (`company` + `output_vat_account`) on a new `Oman VAT Settings.vat_accounts`
       table — explicitly configured per company, replacing an earlier account-type-heuristic approach entirely
       (see status log). Matches India Compliance's GST Settings `gst_accounts` child table pattern exactly.
-- [ ] **TODO, not yet implemented** — Item Tax Template validation against the configured Output VAT Account,
-      mirroring India Compliance's `gst_india/overrides/item_tax_template.py::validate_tax_rates()` (checks the
-      template's own tax rows against the company's configured GST accounts, throws on a mismatch rather than
-      silently allowing a wrong account). See the TODO comment in `utils/tax_account.py` for the exact reference.
+- [ ] **TODO, not yet implemented** — Item Tax Template validation against the configured Output/Input VAT
+      Accounts, mirroring India Compliance's `gst_india/overrides/item_tax_template.py::validate_tax_rates()`
+      (checks the template's own tax rows against the company's configured GST accounts, throws on a mismatch
+      rather than silently allowing a wrong account). See the TODO comment in `utils/tax_account.py` for the
+      exact reference.
 - [ ] **TODO, not yet implemented** — a "Fetch Account" button on Item Tax Template (client script + a new
-      whitelisted method) that auto-adds the missing `taxes` row for the company's configured Output VAT
-      Account, mirroring India Compliance's `gst_india/client_scripts/item_tax_template.js`
+      whitelisted method) that auto-adds the missing `taxes` row(s) for the company's configured Output/Input
+      VAT Accounts, mirroring India Compliance's `gst_india/client_scripts/item_tax_template.js`
       (`fetch_and_update_missing_gst_accounts()`) and `overrides/item_tax_template.py::get_valid_gst_accounts()`.
       See the TODO comment in `utils/tax_account.py` for the exact reference.
 
@@ -542,3 +543,19 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
     `item_tax_template.py::validate_tax_rates()`; (2) a "Fetch Account" button on Item Tax Template that
     auto-adds the missing row, mirroring India Compliance's `client_scripts/item_tax_template.js` +
     `get_valid_gst_accounts()`. See Phase 2's checklist above for both.
+- 2026-08-24 — Split `Oman VAT Account`'s single `output_vat_account` field into separate **Output VAT
+  Account** (unchanged, still `reqd`) and **Input VAT Account** (new, optional — only needed by companies
+  that use Reverse Charge) columns, at the user's request after discussing whether one shared account was
+  enough. `utils/tax_account.py` gained `get_input_vat_account(company)` / `is_input_vat_account(account_head,
+  company)` alongside the existing output-side pair, both now routed through a shared `_get_vat_account()`
+  helper. `purchase_invoice.py::validate_reverse_charge()` now requires *both* accounts to be configured (one
+  combined error listing whichever is missing) and *both* a nonzero row on the Output VAT Account (the
+  self-accounted output liability) and a separate nonzero row on the Input VAT Account (the offsetting input
+  credit) — restoring the two-sided rigor the earlier Add/Deduct/rate-matching heuristics were reaching for,
+  but now correctly grounded in explicit per-account configuration rather than a guess. Sales Invoice is
+  unaffected — it has no "input" side to check. Test helper renamed `set_output_vat_account()` →
+  `set_vat_accounts(company, output_account=None, input_account=None)`; all call sites and the
+  `TestPurchaseInvoiceReverseCharge` suite rewritten around the two-account requirement (new cases: only one
+  of the two configured, only one of the two rows present, a different company's accounts). New
+  `TestInputVatAccount` test class mirrors the existing `TestOutputVatAccount` one. `bench migrate` (new
+  column, idempotent) and `bench run-tests --app oman_compliance` (80/80 passing) confirmed.

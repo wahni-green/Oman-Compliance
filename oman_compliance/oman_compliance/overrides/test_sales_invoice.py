@@ -8,7 +8,7 @@ from oman_compliance.tests import (
 	get_non_oman_test_company,
 	get_oman_test_company,
 	get_test_tax_account,
-	set_output_vat_account,
+	set_vat_accounts,
 )
 
 
@@ -16,7 +16,7 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 	def setUp(self):
 		self.oman_company = get_oman_test_company()
 		self.tax_account, _ = get_test_tax_account()
-		set_output_vat_account(self.oman_company, self.tax_account)
+		set_vat_accounts(self.oman_company, output_account=self.tax_account)
 
 	def test_zero_rated_item_with_tax_charged_is_rejected(self):
 		doc = frappe._dict(
