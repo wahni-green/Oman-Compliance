@@ -79,23 +79,135 @@ No transaction logic yet — just the reference data and settings everything els
 
 ## Phase 2 — Transaction-level VAT logic
 
-- [ ] Custom fields: VAT category (standard-rated / zero-rated / exempt / **out-of-scope** — the category
-      entirely missing from the legacy app, findings §51/85) on Sales/Purchase Invoice and their child items
-- [ ] `overrides/transaction.py` — shared VAT-category and designated-zone detection across Sales
-      Order/Quotation/Delivery Note/Sales Invoice
-- [ ] `overrides/sales_invoice.py` — category validation, zone-based zero-rating per Article 54
-- [ ] `overrides/purchase_invoice.py` — reverse charge flag + self-accounting logic (findings §56/86: entirely
-      missing in the legacy app)
-- [ ] Currency correctness: every VAT-relevant calculation reads `base_*` (company-currency) fields, never
-      document-currency fields — the direct fix for the legacy app's active bug (findings §58)
-- [ ] Exchange-rate disclosure: surface the conversion rate used on foreign-currency invoices (Central Bank of
-      Oman rate on the tax due date, per findings §30/88)
-- [ ] Tests: `overrides/test_sales_invoice.py`, `overrides/test_purchase_invoice.py` — reverse charge,
-      zero-rating, out-of-scope classification, currency conversion cases
+- [x] Custom fields: VAT category (standard-rated / zero-rated / exempt / **out-of-scope** — the category
+      entirely missing from the legacy app, findings §51/85) on Sales/Purchase Invoice and their child items —
+      shipped on all five sales/purchase-cycle item child tables (Sales Order/Quotation/Delivery Note/Sales
+      Invoice/Purchase Invoice Item, all sharing `item_tax_template` as the anchor field), not just the two
+      invoice doctypes literally named in this bullet — needed for the value to survive `get_mapped_doc` when
+      a Sales Invoice is created from a Delivery Note/Sales Order rather than from scratch. Left with no field-
+      level `default`, so `overrides/transaction.py`/`sales_invoice.py`/`purchase_invoice.py` can tell "blank,
+      needs a default" apart from "user deliberately chose Standard Rated" — a hardcoded JSON default would
+      have made that impossible. Also added a `designated_zone` Link (to `Designated Zone`) custom field on
+      `Address`, which §1.3 called for ("linkable from Address/Customer/Supplier") but Phase 1 hadn't actually
+      shipped yet — needed as the detection signal for the zone-based zero-rating bullet below.
+- [x] `overrides/transaction.py` — shared `set_vat_category_defaults()` wired to Sales Order/Quotation/Delivery
+      Note/Sales Invoice `validate`; only fills a blank `vat_category` row, defaulting to Zero Rated if either
+      the billing (`customer_address`) or shipping (`shipping_address_name`) address links to an *active*
+      Designated Zone, else Standard Rated — a suggested default, not an enforced classification, consistent
+      with this app's existing stance that Article 54 eligibility needs case-by-case confirmation (matches how
+      `Designated Zone.article_54_conditions` and the VAT Settings thresholds are already treated as
+      informational, not authoritative).
+- [x] `overrides/sales_invoice.py` — `validate()` calls the shared defaulting above, then
+      `validate_vat_category_tax_consistency()`: blocks a Zero Rated/Exempt/Out of Scope row that actually had
+      VAT applied to it (read from each Sales Taxes and Charges row's `item_wise_tax_detail`, using its *rate*
+      component rather than its amount — currency-agnostic by construction, sidestepping the currency-
+      correctness bullet below entirely for this check). Only checks the direction that overstates output VAT
+      due; a Standard Rated row taxed at 0% under a valid template is not flagged. Two rows sharing an
+      `item_code` with different categories are skipped rather than checked, since ERPNext's own
+      `item_wise_tax_detail` is keyed by item_code, not row, and can't tell them apart — documented as a known
+      limitation rather than risking a false positive against a legitimate mixed-category invoice.
+- [x] `overrides/purchase_invoice.py` — `validate_reverse_charge()` defaults blank `vat_category` rows to
+      Standard Rated (no zone-based detection attempted on the purchase side, since that's box 3/4 territory
+      for Phase 3, not this bullet), plus a new `is_reverse_charge` Check custom field on Purchase Invoice; if
+      checked, requires at least one Purchase Taxes and Charges row to exist — the concrete, defensible slice
+      of "self-accounting logic" implementable now (the actual output-VAT-liability + input-VAT-recoverable GL
+      rows come from the user's own tax template configuration, exactly how India Compliance splits this
+      between the override file and a template/Tax Category mechanism per architecture doc §1.3, rather than
+      this app generating tax rows itself). No automatic `is_reverse_charge` detection heuristic (e.g. off
+      supplier country) was added — reverse charge applies specifically to imported *services*, and any address-
+      based heuristic would also fire on imported *goods* (which go through the separate box 4, not box 2),
+      so guessing would risk misclassifying a real return box.
+- [x] Currency correctness: no VAT amount aggregation exists yet in this phase (that's Phase 3's VAT return) —
+      the one place Phase 2 reads a tax figure at all (the sales-invoice consistency check above) is currency-
+      agnostic by using a rate, not an amount. Confirmed while reading `taxes_and_totals.py` for that check:
+      `item_wise_tax_detail`'s stored amount is actually already in company currency
+      (`current_tax_amount * self.doc.conversion_rate`, i.e. doc-currency × rate = base/company currency) —
+      worth knowing for Phase 3's section functions, which will read amounts from it directly.
+- [x] Exchange-rate disclosure: `utils/currency.py::get_exchange_rate_disclosure()` — returns a formatted "1
+      {doc currency} = {rate} {company currency}" string for a foreign-currency Sales/Purchase Invoice, `None`
+      for a company-currency one. Exposed via a new `jinja.methods` hooks.py entry now, ahead of Phase 4's print
+      formats actually consuming it — no schema change, so shipping the hook now cost nothing and there was no
+      reason to wait.
+- [x] Tests: `overrides/test_transaction.py`, `overrides/test_sales_invoice.py`,
+      `overrides/test_purchase_invoice.py`, `utils/test_currency.py` — zero-rating defaults (plain, zone-
+      detected, deactivated-zone, mixed billing/shipping addresses), no-clobber-of-explicit-value, category/tax
+      mismatch rejection and its duplicate-item-code exception, reverse-charge tax-row requirement, exchange-
+      rate disclosure for same- vs. foreign-currency documents. All built on lightweight `frappe._dict`/`
+      frappe.get_doc(...).insert()` mocks matching Phase 1's existing test style — no full Sales/Purchase
+      Invoice fixtures needed, since every override function here operates on already-validated doc data.
+- [x] `Oman VAT Account` child doctype (`company` + `output_vat_account`) on a new `Oman VAT Settings.vat_accounts`
+      table — explicitly configured per company, replacing an earlier account-type-heuristic approach entirely
+      (see status log). Matches India Compliance's GST Settings `gst_accounts` child table pattern exactly.
+- [ ] **TODO, not yet implemented** — Item Tax Template validation against the configured Output VAT Account,
+      mirroring India Compliance's `gst_india/overrides/item_tax_template.py::validate_tax_rates()` (checks the
+      template's own tax rows against the company's configured GST accounts, throws on a mismatch rather than
+      silently allowing a wrong account). See the TODO comment in `utils/tax_account.py` for the exact reference.
+- [ ] **TODO, not yet implemented** — a "Fetch Account" button on Item Tax Template (client script + a new
+      whitelisted method) that auto-adds the missing `taxes` row for the company's configured Output VAT
+      Account, mirroring India Compliance's `gst_india/client_scripts/item_tax_template.js`
+      (`fetch_and_update_missing_gst_accounts()`) and `overrides/item_tax_template.py::get_valid_gst_accounts()`.
+      See the TODO comment in `utils/tax_account.py` for the exact reference.
 
 ---
 
 ## Phase 3 — VAT Return & reports
+
+**2026-08-23 — Phase 2/3 alignment check** (done while still finishing Phase 2, at the user's request, against
+the legacy `oman_vat` app's report at `apps/oman_vat/oman_vat/oman_vat/report/oman_vat/oman_vat.py`):
+
+- **Confirmed ready:** `vat_category` now lives on both the item row *and* its `Item Tax Template` (Phase 2),
+  which is the same idea the legacy report used (`OMAN VAT Sales/Purchase Account` child rows mapping one
+  `item_tax_template` to one report line) — except ours is auto-derivable from the template itself rather than
+  a manually maintained mapping table the admin has to keep in sync. Section functions can group by
+  `item_tax_template.vat_category` directly. `is_reverse_charge` (Phase 2) is ready to feed the reverse-charge
+  purchases box. TRN, Designated Zone, and the OMR-fixed thresholds (Phase 1) need no changes for Phase 3.
+- **Confirmed the currency bug mechanism, precisely:** the legacy report sums `item.net_amount` (document
+  currency) for the taxable-amount column, findings §58's exact bug — but separately reads its VAT-amount
+  column from `item_wise_tax_detail`, whose stored figure is *already* base/company currency (`current_tax_amount
+  * conversion_rate` in ERPNext's `taxes_and_totals.py`, confirmed reading that source during Phase 2). So the
+  legacy report's two columns were silently on two different currency bases against each other, not just wrong
+  in one direction. Phase 3's section functions must read `base_net_amount` (or equivalent `base_*` field) for
+  every taxable-amount figure, matching how the VAT-amount figure already needs to be read.
+- **Gap 1 resolved same-round (2026-08-23):** "No signal at all for 'imports of goods' (box 4)" — a distinct
+  box from reverse-charge purchases (box 2: reverse charge covers imported *services*; imports of goods is
+  customs-driven) — was closed the same day this alignment note was written: a read-only `is_import_of_goods`
+  Check field now exists on Purchase Invoice, auto-computed from the Dispatch Address's country vs. the
+  Company's own country (`overrides/purchase_invoice.py::set_import_of_goods_flag()`). See this phase's
+  bullets and status log below for the full detail — Phase 3's `imports_of_goods.py` can read this field
+  directly; no further field work needed for it specifically.
+- **"Out of Scope" vs. return box 3 — resolved (2026-08-23), against a primary source: OTA's own "VAT Taxpayer
+  Guide — VAT Return Filing" (V1, June 2021).** They are **not** the same concept, and the plan's original
+  `supplies_outside_oman.py` framing was itself slightly off — the actual official return has no "out of
+  scope" box at all:
+  - **"Out of Scope" supplies are excluded from the VAT return entirely** — not reported in any box. The
+    guide's own definition (§3.1): supplies made outside Oman (place of supply outside Oman), supplies not
+    made by a Taxable Person, or supplies not made in the course of economic activity. Both box 1(c) (exempt)
+    and box 3(a) (exports) explicitly state "Excludes any out of scope supplies" in the guide's field
+    descriptions.
+  - **The actual box 3, "Supplies to countries outside of Oman," has exactly one line: 3(a) Exports** — "total
+    value of supplies of goods and services exported on which zero rating for exportation applies." This is a
+    **Zero Rated** supply (the place of supply is still Oman — an Omani taxable person exporting), not an "Out
+    of Scope" one. So `vat_category = "Zero Rated"` alone is *not* enough to route a line item to the right
+    box: it can land in either box 1(b) (domestic zero-rated) or box 3(a) (export), and nothing currently
+    distinguishes those two cases — needs an export/domestic-delivery signal (likely derived from the
+    customer/shipping country, mirroring how `is_import_of_goods` derives from Dispatch Address country on the
+    purchase side) before `domestic_supplies.py`/a new `exports.py` can be split correctly.
+  - **The real return's official structure, for reference when building the section files** (box : description):
+    1(a) standard-rated domestic, 1(b) zero-rated domestic, 1(c) exempt domestic (excl. out of scope), 1(d)/1(e)
+    intra-GCC reverse-charge supplies (not yet activated by the OTA), 1(f) profit-margin-scheme goods; 2(a)
+    intra-GCC reverse-charge purchases (not yet activated), 2(b) non-GCC reverse-charge purchases; 3(a) exports;
+    4(a) import of goods with postponed payment, 4(b) total goods imported; 5 total VAT due; 6 input VAT credit
+    (split: ordinary purchases, imports, fixed assets, adjustments); 7 net tax liability. Two refinements this
+    reveals for later Phase 3 work, beyond the export/domestic split above: (a) reverse charge purchases split
+    GCC vs. non-GCC (box 2a/2b) — `is_reverse_charge` doesn't currently distinguish this; (b) imports of goods
+    split by postponed-payment status (box 4a/4b) — `is_import_of_goods` doesn't currently distinguish this
+    either. Neither blocks Phase 2 (the flags are still the correct starting signal), but the return-section
+    functions will need more than just these two flags to populate every box correctly.
+  - Source: [VAT Taxpayer Guide – VAT Return Filing](https://tms.taxoman.gov.om/portal/documents/20126/1414820/VAT+Taxpayer+Guide+-+VAT+Return+Filing.pdf), pages 7 and 10–11 (fetched and read directly, not summarized secondhand).
+- **Also noted, not yet decided:** credit/debit notes (`is_return`) — the legacy report kept returned amounts
+  in a separate "adjustment" column rather than netting them into the main figure, for auditability. Worth
+  deciding deliberately in Phase 3 rather than defaulting to whichever ERPNext's `is_return` sign convention
+  makes easiest.
 
 - [ ] `utils/vat_return/sections/` — one file per return box: `domestic_supplies.py`,
       `reverse_charge_purchases.py`, `supplies_outside_oman.py`, `imports_of_goods.py`, `input_vat_credit.py`,
@@ -282,3 +394,151 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
   from one an admin deliberately edited, so a blanket overwrite risked destroying local corrections. Back to
   insert-only; a future wording fix belongs in an explicit dated patch instead. `bench run-tests --app
   oman_compliance` (15/15 passing).
+- 2026-08-23 — Phase 2 complete: `vat_category` custom field on all five sales/purchase-cycle item child
+  tables, `designated_zone` Link custom field on Address, `is_reverse_charge` Check on Purchase Invoice,
+  `overrides/transaction.py` (shared zone-aware VAT-category defaulting), `overrides/sales_invoice.py`
+  (category/tax consistency validation), `overrides/purchase_invoice.py` (reverse-charge tax-row requirement),
+  `utils/currency.py::get_exchange_rate_disclosure()` (wired as a `jinja.methods` hook). See the phase's own
+  bullets above for the reasoning behind each scope decision (field placement beyond the literal checklist
+  text, no field-level default, no automatic reverse-charge heuristic, etc.).
+  Live-verified on the same shared `dev.localhost` bench as Phase 1 (a fresh `bench --site dev.localhost
+  backup` was taken immediately before migrating, per the same standing risk acceptance). One real bug caught
+  during that verification, not by `ruff`/`ast.parse`: `bench migrate` initially did *not* create any of the
+  new custom fields, because `patches.txt`'s `execute:...create_custom_fields() #2` line's trailing version
+  marker was unchanged, so Frappe's patch tracker treated it as an already-applied no-op despite the
+  underlying `CUSTOM_FIELDS` dict having new entries — exactly the re-run convention `patches.txt`'s own header
+  comment documents. Fixed by bumping the marker to `#3`; a second `bench migrate` then created all seven new
+  fields, confirmed via a direct `tabCustom Field` query (safer than `bench console`, which hung this session
+  on an interactive exit prompt when fed a multi-line heredoc — noted for future sessions: use `bench execute`
+  or a direct SQL/script check instead of piping multi-line input into `bench console`).
+  A `code-review` pass over the diff caught three more real issues, all fixed before landing: (1)
+  `_is_designated_zone_transaction()` used `customer_address or shipping_address_name`, so a zone shipping
+  address was silently ignored whenever a non-zone billing address was also set — changed to check both
+  addresses independently. (2) The same function never read `Designated Zone.is_active`, so deactivating a
+  zone had no effect on already-linked addresses still driving the Zero Rated default — fixed by checking it.
+  (3) `sales_invoice.py`'s tax-consistency check aggregated charged VAT rate by `item_code` across the whole
+  invoice (matching how ERPNext's own `item_wise_tax_detail` is keyed), so two rows sharing an item code with
+  different VAT categories got checked against a merged rate — could false-positive-reject a legitimately
+  mixed-category invoice; fixed by skipping the check for any item_code that appears with more than one
+  distinct category on the same document, with a comment documenting why. `bench run-tests --app
+  oman_compliance` (33/33 passing) and a second `bench migrate` (idempotency re-check, no duplicate `Custom
+  Field` rows) both confirmed after the fixes.
+- 2026-08-23 — At the user's request: linked VAT Category onto `Item Tax Template` itself (a new `vat_category`
+  Select custom field there), since a template's own tax rate can't distinguish Zero Rated from Exempt from
+  Out of Scope (all commonly 0%) the way an explicit category on the template can. `utils/vat_category.py::
+  get_item_tax_template_category()` is now the shared lookup: `overrides/transaction.py` and
+  `overrides/purchase_invoice.py` prefer it over the zone/Standard-Rated default when a row's own
+  `item_tax_template` declares one, and `overrides/sales_invoice.py` added a new direction-agnostic check
+  (row category contradicts its template's declared category, in *either* direction — stronger than the
+  existing rate-based check, which only ever caught the no-tax-categories-but-taxed direction).
+  Also answered the user's second question (do we store VAT amount on item rows): no — ERPNext's
+  `item_tax_amount` field on Purchase Invoice Item is unrelated (valuation-inclusion amount for stock costing,
+  confirmed by reading `buying_controller.py`, not a general VAT figure), and Sales Invoice Item has no
+  equivalent field at all. The actual applied VAT amount per item is derivable from each tax row's
+  `item_wise_tax_detail` (see the Phase 2/3 alignment note above on why that figure is already base-currency)
+  — nothing currently stores it redundantly on the row itself, and Phase 3 doesn't need it to either.
+  This round surfaced a significant latent bug via `test_template_without_category_returns_none` unexpectedly
+  returning `"Standard Rated"` instead of `None`: Frappe auto-fills any Select field with no explicit `default`
+  to its *first listed option* on every new document/child row
+  (`frappe.model.create_new.get_static_default_value`), running before any `validate()` hook. Every
+  `vat_category` field (on the five item child tables *and* the new Item Tax Template field) was silently
+  arriving at our own defaulting/validation logic already set to "Standard Rated" — never actually blank — which
+  would have made the zone-based and template-based defaulting dead code in real usage despite all the
+  `frappe._dict`-based unit tests passing (those bypass `frappe.new_doc()` entirely, so they never exercised
+  this). Fixed with the same leading-blank-option idiom Frappe/ERPNext's own optional Select fields use:
+  `constants/VAT_CATEGORY_SELECT_OPTIONS = "\n" + "\n".join(VAT_CATEGORIES)`, replacing the plain joined string
+  everywhere it was used. `create_custom_fields()`'s `update=True` default confirmed to actually patch already-
+  existing Custom Field rows' `options` in place (not just skip them) once the patch marker was bumped again —
+  verified directly via `tabCustom Field` query, not just import-time inspection.
+  A further `code-review` pass caught one more real gap: `_is_designated_zone_transaction()` checked
+  `customer_address`/`shipping_address_name` but not `dispatch_address_name` (present on Sales Order/Delivery
+  Note/Sales Invoice, not Quotation) — the exact "supply out of a zone" case the function's own comment had
+  claimed was undetectable, when in fact the per-transaction dispatch address was already available and simply
+  unused. Fixed by checking it alongside the other two. `bench migrate` (idempotent, fields updated in place,
+  no duplicates) and `bench run-tests --app oman_compliance` (41/41 passing) both confirmed after all fixes.
+- 2026-08-23 — Two more user-directed additions, done together since the second surfaced while doing the
+  Phase 2/3 alignment check for the first (see that note earlier in this file):
+  1. **Oman-company gating, retroactively applied to every Phase 2 transaction override.** New
+     `utils/company.py::is_oman_company()` (checks `Company.country == "Oman"`), now the first thing checked
+     in `transaction.set_vat_category_defaults()`, `sales_invoice.validate()`, and the new
+     `purchase_invoice.validate()` — each no-ops entirely for a non-Oman company. This closes a real gap: none
+     of Phase 2's logic had ever checked the company before, so on this shared bench (whose only real Company,
+     "Dev Server", is registered in India) every one of those hooks was silently running against — and, for
+     `sales_invoice.py`'s validation, capable of blocking — an unrelated company's ordinary transactions. Exactly
+     the same class of cross-company leakage as Phase 1's `tax_id`/property-setter incident, just not yet
+     caught this time because nothing had exercised it. `oman_compliance/tests/__init__.py::
+     get_oman_test_company()` added (creates a minimal uncommitted Oman-country Company for tests, reused if
+     one already exists) since this bench has no real Oman company to test against otherwise; every existing
+     Phase 2 test needed `company=` added to its mock doc, plus new tests confirming a non-Oman company (and a
+     blank company) is left untouched.
+  2. **`is_import_of_goods` on Purchase Invoice** (VAT return box 4 — distinct from Reverse Charge/box 2, which
+     is imported *services*, not goods): a new read-only Check field, auto-computed in
+     `purchase_invoice.py::set_import_of_goods_flag()` from the Dispatch Address's country vs. the Company's
+     own country (blank Dispatch Address ⇒ not an import, per explicit user instruction). Unlike Reverse
+     Charge, this isn't a manual flag — it's always recomputed on save, and the user is notified via
+     `frappe.msgprint()` specifically when the computed value *changes* (not on every save), since the field
+     itself isn't user-editable. `purchase_invoice.py` gained a top-level `validate()` that runs this alongside
+     `validate_reverse_charge()`, gated by `is_oman_company()`; `hooks.py`'s Purchase Invoice `validate` hook now
+     points there instead of `validate_reverse_charge` directly.
+     Which address field to read was a real fork worth getting right: ERPNext's Purchase Invoice has both
+     `shipping_address` (destination — the company's own receiving location, always domestic for an ordinary
+     purchase) and `dispatch_address` (origin — where the supplier actually ships from). The user was asked
+     directly and chose `dispatch_address`, correctly — origin is what determines whether goods are crossing
+     into Oman from abroad; destination wouldn't have detected anything.
+  A `code-review` pass caught one documentation bug (not a code bug): the Phase 2/3 alignment note above had
+  been written *before* this round's work and still described "imports of goods" as an unresolved gap needing
+  a future field, even though this same round shipped exactly that — fixed by updating the note in place.
+  `bench migrate` (idempotent) and `bench run-tests --app oman_compliance` (51/51 passing) confirmed after all
+  of the above.
+- 2026-08-24 — Three more review rounds on `purchase_invoice.py`'s reverse-charge check and
+  `sales_invoice.py`'s VAT-consistency check, escalating until the actual right fix was found:
+  1. First round: tightened `_has_recipient_output_vat_row()` from "any nonempty Taxes and Charges table" to
+     requiring a VAT-bearing "Add" row and a VAT-bearing "Deduct" row (using `add_deduct_tax`), since a single
+     row is exactly what an ordinary domestic purchase's plain input VAT already looks like.
+  2. Second round: that still accepted an unrelated Add row (ordinary input VAT) and an unrelated Deduct row
+     (e.g. a withholding deduction) that just happened to post to a VAT-bearing-*typed* account — tightened
+     further to require the Add and Deduct rows to share an identical nonzero *rate*, since genuine self-
+     accounting is the same VAT recorded twice.
+  3. Third round found the rate-matching heuristic itself was still gameable (an ordinary input-VAT Add row
+     and an unrelated same-rate Deduct row could coincidentally match) and, per the user's prompt, checked how
+     India Compliance actually solves this class of problem — it doesn't use account-type or rate heuristics at
+     all. `GST Settings` has an explicit `gst_accounts` child table (keyed by `company` + `account_type`) naming
+     the exact CGST/SGST/IGST/Cess ledger accounts, and `gst_india/overrides/purchase_invoice.py::
+     validate_reverse_charge()` doesn't inspect tax rows at all — it just enforces "reverse charge isn't
+     applicable to Import of Goods." Rebuilt around this instead of continuing to patch heuristics:
+     - New `Oman VAT Account` child doctype (`company`, `output_vat_account`) and `Oman VAT Settings.vat_accounts`
+       table — one row per company, directly mirroring `gst_accounts`' shape (simplified: Oman's flat single-
+       rate VAT needs only one account per company, not GST's CGST/SGST/IGST/Cess split). `Oman VAT Settings`
+       gained `validate_unique_vat_account_per_company()` rejecting a duplicate company row.
+     - `utils/tax_account.py` rewritten: `VAT_BEARING_ACCOUNT_TYPES`/`is_vat_bearing_account()` deleted
+       entirely (dead code once nothing used account-type heuristics anymore) and replaced with
+       `get_output_vat_account(company)` / `is_output_vat_account(account_head, company)`, both reading the new
+       per-company table via `frappe.get_cached_doc("Oman VAT Settings")`, matching how India Compliance's own
+       `get_gst_accounts_by_type()` loads its cached GST Settings doc rather than querying the child table
+       directly.
+     - `purchase_invoice.py::_has_recipient_output_vat_row()` simplified back down to "at least one nonzero-
+       rate/amount row posted to this company's configured Output VAT Account" — no Add/Deduct pairing needed
+       at all, since that pairing turned out to be an assumption of my own invention, not something OTA or the
+       actual VAT return (box 2 just needs taxable base + VAT due) requires to be structured that way on the
+       same document. `validate_reverse_charge()` now throws a distinct, more actionable error when the
+       company's Output VAT Account isn't configured at all vs. configured but missing from this invoice.
+     - `sales_invoice.py::_get_item_wise_tax_rates()` updated the same way — filters by the company's
+       configured Output VAT Account instead of a generic account-type set. If unconfigured, the mismatch check
+       simply doesn't fire (returns no rates) rather than guessing, consistent with this app's existing
+       informational-until-configured pattern elsewhere.
+     - The **first design of this fix was itself not multi-company safe** — a single global `output_vat_account`
+       Link field directly on the Single `Oman VAT Settings` doctype, since ERPNext accounts are always
+       company-specific and a lone global field could only ever be correct for one company. Caught when the
+       user asked directly ("Is it multi-company safe though?") before it was ever committed; replaced with the
+       per-company child table described above before landing.
+     - All three existing test files (`test_purchase_invoice.py`, `test_sales_invoice.py`,
+       `utils/test_tax_account.py`) rewritten around the new `set_output_vat_account()` test helper (added to
+       `tests/__init__.py`) instead of the account-type/Add-Deduct fixtures; `test_oman_vat_settings.py` gained
+       coverage for the duplicate-company rejection. `bench migrate` (new doctype + settings schema, idempotent)
+       and `bench run-tests --app oman_compliance` (71/71 passing) confirmed throughout.
+  - **Two follow-up TODOs deliberately not implemented yet** (explicit user instruction: "only add ToDo for
+    now"), tracked here and as a code comment in `utils/tax_account.py`: (1) validating an Item Tax Template's
+    own `taxes` rows against the company's configured Output VAT Account, mirroring India Compliance's
+    `item_tax_template.py::validate_tax_rates()`; (2) a "Fetch Account" button on Item Tax Template that
+    auto-adds the missing row, mirroring India Compliance's `client_scripts/item_tax_template.js` +
+    `get_valid_gst_accounts()`. See Phase 2's checklist above for both.

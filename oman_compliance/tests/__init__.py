@@ -49,3 +49,79 @@ def set_default_company_for_tests() -> None:
 	global_defaults = frappe.get_single("Global Defaults")
 	global_defaults.default_company = TEST_COMPANY
 	global_defaults.save()
+
+
+def get_test_tax_account() -> tuple[str, str]:
+	"""Return (account_name, company) for any existing account usable as an Item Tax Template row
+	— for tests that need a throwaway Item Tax Template fixture without depending on this app's
+	own TEST_COMPANY existing (it may not, on a shared bench; see before_tests() above)."""
+	account = frappe.db.get_value(
+		"Account",
+		{
+			"account_type": ["in", ["Tax", "Chargeable", "Income Account", "Expense Account"]],
+			"is_group": 0,
+		},
+		["name", "company"],
+	)
+	if not account:
+		frappe.throw("No usable Tax/Chargeable/Income/Expense account found for test fixtures.")
+
+	return account
+
+
+def get_oman_test_company() -> str:
+	"""Return the name of a Company registered in Oman, creating a minimal one if none exists yet
+	on this bench — needed by any test exercising Oman-company-gated behavior (see
+	utils/company.py::is_oman_company()). Created uncommitted, inside the calling test's own DB
+	transaction, so FrappeTestCase's per-test rollback cleans it up automatically; no explicit
+	deletion needed."""
+	existing = frappe.db.get_value("Company", {"country": "Oman"})
+	if existing:
+		return existing
+
+	company = frappe.get_doc(
+		{
+			"doctype": "Company",
+			"company_name": "_Test Oman Gating Company",
+			"abbr": "TOGC",
+			"default_currency": "OMR",
+			"country": "Oman",
+		}
+	).insert(ignore_permissions=True)
+
+	return company.name
+
+
+def get_non_oman_test_company() -> str:
+	"""Return the name of a Company registered somewhere other than Oman, creating a minimal one
+	if none exists yet. Used by tests confirming Oman-company-gated behavior leaves a non-Oman
+	company's transactions untouched — deliberately not a hardcoded literal like "Dev Server",
+	since that only happens to exist on this particular shared bench and wouldn't exercise
+	anything real (or even exist) elsewhere; frappe.get_cached_value() needs a genuine Company
+	record with a genuine non-Oman country to actually be exercised."""
+	existing = frappe.db.get_value("Company", {"country": ["!=", "Oman"]})
+	if existing:
+		return existing
+
+	company = frappe.get_doc(
+		{
+			"doctype": "Company",
+			"company_name": "_Test Non-Oman Gating Company",
+			"abbr": "TNOGC",
+			"default_currency": "USD",
+			"country": "United Arab Emirates",
+		}
+	).insert(ignore_permissions=True)
+
+	return company.name
+
+
+def set_output_vat_account(company: str, account: str) -> None:
+	"""Configure Oman VAT Settings' per-company `vat_accounts` table with the given company's
+	Output VAT Account, replacing any existing row for that company. Test-only: relies on
+	FrappeTestCase's per-test rollback to undo it afterward, matching how other Single-doctype
+	settings are exercised elsewhere in this test suite."""
+	settings = frappe.get_single("Oman VAT Settings")
+	settings.vat_accounts = [row for row in settings.vat_accounts if row.company != company]
+	settings.append("vat_accounts", {"company": company, "output_vat_account": account})
+	settings.save(ignore_permissions=True)
