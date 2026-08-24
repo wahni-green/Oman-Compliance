@@ -154,6 +154,9 @@ doc_events = {
 	"Purchase Invoice": {
 		"validate": "oman_compliance.oman_compliance.overrides.purchase_invoice.validate",
 	},
+	"Item Tax Template": {
+		"validate": "oman_compliance.oman_compliance.overrides.item_tax_template.validate",
+	},
 }
 
 # Scheduled Tasks
