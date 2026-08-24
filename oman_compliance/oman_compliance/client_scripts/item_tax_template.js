@@ -12,7 +12,7 @@ async function show_missing_vat_accounts_banner(frm) {
 	frm.dashboard.add_comment(
 		__("<strong>Missing VAT Accounts:</strong> {0}", [missing_accounts.join(", ")]),
 		"orange",
-		true,
+		true
 	);
 }
 
@@ -32,7 +32,9 @@ async function get_missing_vat_accounts(frm) {
 	if (!vat_accounts || !vat_accounts.length) return;
 
 	const template_accounts = (frm.doc.taxes || []).map((row) => row.tax_type);
-	const missing_accounts = vat_accounts.filter((account) => account && !template_accounts.includes(account));
+	const missing_accounts = vat_accounts.filter(
+		(account) => account && !template_accounts.includes(account)
+	);
 
 	if (missing_accounts.length) return missing_accounts;
 }
@@ -44,8 +46,7 @@ async function get_vat_accounts(frm) {
 	frm._oman_vat_accounts = frm._oman_vat_accounts || {};
 	if (!frm._oman_vat_accounts[company]) {
 		const { message } = await frappe.call({
-			method:
-				"oman_compliance.oman_compliance.overrides.item_tax_template.get_vat_accounts_for_template",
+			method: "oman_compliance.oman_compliance.overrides.item_tax_template.get_vat_accounts_for_template",
 			args: { company: company },
 		});
 
