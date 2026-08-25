@@ -149,3 +149,34 @@ class TestOmanVATReturn(FrappeTestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			self.doc.save()
+
+	def test_editing_a_filed_return_is_rejected(self):
+		self._generate_with()
+		self.doc.status = "Filed"
+		self.doc.save()
+
+		self.doc.period_type = "Quarterly"
+		with self.assertRaises(frappe.ValidationError):
+			self.doc.save()
+
+	def test_reverting_a_filed_return_to_draft_is_rejected(self):
+		self._generate_with()
+		self.doc.status = "Filed"
+		self.doc.save()
+
+		self.doc.status = "Draft"
+		with self.assertRaises(frappe.ValidationError):
+			self.doc.save()
+
+	def test_deleting_a_filed_return_is_rejected(self):
+		self._generate_with()
+		self.doc.status = "Filed"
+		self.doc.save()
+
+		with self.assertRaises(frappe.ValidationError):
+			self.doc.delete()
+
+	def test_deleting_a_draft_return_is_allowed(self):
+		self._generate_with()
+
+		self.doc.delete()  # should not raise

@@ -28,6 +28,24 @@ class OmanVATReturn(Document):
 		if self.from_date and self.to_date and self.from_date > self.to_date:
 			frappe.throw(_("From Date cannot be after To Date"))
 
+		self.validate_filed_is_immutable()
+
+	def validate_filed_is_immutable(self):
+		"""A Filed return must not change under a user's feet — not just via generate_return()
+		(which already refuses to regenerate), but via any edit at all, including a plain field
+		change or reverting `status` itself back to Draft. Once the DB's own copy of this document
+		says Filed, every subsequent save is rejected outright; the one save that's still allowed is
+		the Draft → Filed transition itself, since that's what "filing" actually is."""
+		if self.is_new():
+			return
+
+		if frappe.db.get_value(self.doctype, self.name, "status") == "Filed":
+			frappe.throw(_("A Filed return cannot be modified."), title=_("Return Already Filed"))
+
+	def on_trash(self):
+		if self.status == "Filed":
+			frappe.throw(_("A Filed return cannot be deleted."), title=_("Return Already Filed"))
+
 	@frappe.whitelist()
 	def generate_return(self):
 		"""Recomputes every box from the current transaction data and replaces `boxes` wholesale —
