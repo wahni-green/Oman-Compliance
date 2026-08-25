@@ -1,5 +1,5 @@
 import itertools
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
 import frappe
@@ -20,8 +20,18 @@ def get_unique_test_date():
 	query has no way to tell "this test's invoice" apart from "the previous test method's invoice"
 	if both happen to fall on the same day. Callers should use this same date for both the fixture
 	invoice's `posting_date` and the from_date/to_date passed to whatever section function reads it
-	back, keeping each test's period fully isolated from its siblings."""
-	return add_days("2020-01-01", next(_test_date_counter))
+	back, keeping each test's period fully isolated from its siblings.
+
+	Offsets from the *current* Fiscal Year's start date, not a hardcoded calendar date — a
+	submitted invoice dated outside every configured Fiscal Year fails ERPNext's own
+	`validate_date_with_fiscal_year()` before it ever reaches this app's own validation. On a truly
+	fresh site, `before_tests()`'s `setup_complete()` only creates the fiscal year covering
+	*today*, so anchoring anywhere else (e.g. a fixed 2020-01-01) would only work by coincidence of
+	whatever Fiscal Year records happen to already exist on a given bench."""
+	from erpnext.accounts.utils import get_fiscal_year
+
+	_, fiscal_year_start, _ = get_fiscal_year(getdate())
+	return add_days(fiscal_year_start, next(_test_date_counter))
 
 
 @contextmanager
@@ -29,19 +39,26 @@ def _without_broken_third_party_hooks():
 	"""This shared bench has other apps installed (`galfar`, `erpnext`) whose doc_event hooks
 	assume custom fields that were never actually installed here — a pre-existing environment gap
 	unrelated to Oman Compliance, not something this app owns or should fix by patching shared
-	Contact/Customer/Address schema. Every real Sales/Purchase Invoice submission runs into three
-	of them: ERPNext's own `accounts/party.py::get_default_contact()` (queries
-	`Contact.is_billing_contact`) and `get_address_tax_category()` (queries `Address.tax_category`
-	— both normally present on a fully migrated ERPNext install) via `set_missing_values`, and
+	Contact/Customer/Address schema. Every real Sales/Purchase Invoice submission runs into two
+	of them regardless of what else is installed: ERPNext's own
+	`accounts/party.py::get_default_contact()` (queries `Contact.is_billing_contact`) and
+	`get_address_tax_category()` (queries `Address.tax_category` — both normally present on a
+	fully migrated ERPNext install) via `set_missing_values`. The third,
 	`galfar.overrides.sales_invoice.validate_overdue_customers` (queries `Customer.is_walkin`, a
-	`galfar` custom field) via Sales Invoice's own `validate`. All three are stubbed out for the
-	scope of building one test fixture rather than touching shared state other apps on this bench
-	depend on."""
-	with (
+	`galfar` custom field) via Sales Invoice's own `validate`, only applies when `galfar` is
+	actually installed — this app's own `required_apps` (hooks.py) never lists it, so patching that
+	target unconditionally would raise ModuleNotFoundError on any bench (e.g. CI) that doesn't
+	happen to have `galfar` installed too."""
+	patches = [
 		patch("erpnext.accounts.party.get_default_contact", return_value=None),
 		patch("erpnext.accounts.party.get_address_tax_category", return_value=""),
-		patch("galfar.overrides.sales_invoice.validate_overdue_customers", return_value=None),
-	):
+	]
+	if "galfar" in frappe.get_installed_apps():
+		patches.append(patch("galfar.overrides.sales_invoice.validate_overdue_customers", return_value=None))
+
+	with ExitStack() as stack:
+		for target in patches:
+			stack.enter_context(target)
 		yield
 
 
@@ -375,6 +392,7 @@ def create_submitted_sales_invoice(
 	is_return: bool = False,
 	return_against: str | None = None,
 	posting_date: str | None = None,
+	extra_item_net_amounts: list[float] | None = None,
 ):
 	"""Builds and submits a real, minimal Sales Invoice for `company` — one non-stock item row
 	carrying `vat_category`, an optional Output VAT tax row, and — if `shipping_country`/
@@ -386,7 +404,11 @@ def create_submitted_sales_invoice(
 	a single validate function against already-validated doc data). Pass `posting_date` (see
 	get_unique_test_date()) rather than leaving it defaulted whenever the test also queries a
 	specific period — FrappeTestCase's per-class (not per-test) rollback means sibling test
-	methods' invoices would otherwise share today's date and pollute each other's query window."""
+	methods' invoices would otherwise share today's date and pollute each other's query window.
+
+	`extra_item_net_amounts` adds further rows sharing the *same* item_code as the main row (net
+	amount `net_amount`) — for testing get_invoice_rows()'s handling of `item_wise_tax_detail`,
+	which is keyed by item_code, not row."""
 	item_code = get_or_create_test_item()
 	# A return must share its original invoice's own customer (ERPNext's own
 	# validate_return_against enforces this) — a fresh customer per call is right for an
@@ -423,11 +445,12 @@ def create_submitted_sales_invoice(
 					"item_code": item_code,
 					"item_name": item_code,
 					"qty": sign,
-					"rate": net_amount,
+					"rate": amount,
 					"vat_category": vat_category,
 					"income_account": frappe.get_cached_value("Company", company, "default_income_account"),
 					"cost_center": frappe.get_cached_value("Company", company, "cost_center"),
 				}
+				for amount in (net_amount, *(extra_item_net_amounts or []))
 			],
 			"taxes": (
 				[
