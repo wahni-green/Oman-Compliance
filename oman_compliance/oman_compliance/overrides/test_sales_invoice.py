@@ -331,6 +331,50 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 
 		validate_no_mixed_vat_category_per_item_code(doc)  # should not raise
 
+	def test_duplicate_item_code_with_same_category_but_different_template_is_rejected(self):
+		# Category alone isn't a strong enough signal that two rows were actually taxed
+		# identically — two "Standard Rated" rows could use different Item Tax Templates
+		# configured with different rates, which a category-only check would miss entirely.
+		doc = frappe._dict(
+			items=[
+				frappe._dict(
+					idx=1,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template A",
+				),
+				frappe._dict(
+					idx=2,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template B",
+				),
+			],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_no_mixed_vat_category_per_item_code(doc)
+
+	def test_duplicate_item_code_with_the_same_category_and_template_is_accepted(self):
+		doc = frappe._dict(
+			items=[
+				frappe._dict(
+					idx=1,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template A",
+				),
+				frappe._dict(
+					idx=2,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template A",
+				),
+			],
+		)
+
+		validate_no_mixed_vat_category_per_item_code(doc)  # should not raise
+
 	def test_full_validate_rejects_a_mixed_category_duplicate_item_code(self):
 		doc = frappe._dict(
 			company=self.oman_company,

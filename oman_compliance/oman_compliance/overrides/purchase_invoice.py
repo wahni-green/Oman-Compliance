@@ -120,24 +120,33 @@ def _set_default_vat_category(doc):
 def validate_no_mixed_vat_category_per_item_code(doc):
 	"""ERPNext's `item_wise_tax_detail` (read by `utils/vat_return.get_invoice_rows()` when
 	generating a VAT return/register) is keyed by item_code, not row — if the same item_code
-	appears more than once on this invoice with different VAT Categories, there is no way to later
-	recover how much of the combined VAT amount belongs to which row (confirmed against ERPNext's
-	own `taxes_and_totals.py`: the stored rate is just whichever row was processed last, not kept
-	per category). Blocking it here, at the source, is better than a return/report silently
-	misattributing VAT between boxes months later — use a distinct Item Code per category instead."""
-	categories_by_item_code: dict[str, set] = {}
+	appears more than once on this invoice, there is no way to later recover how much of the
+	combined VAT amount belongs to which row (confirmed against ERPNext's own
+	`taxes_and_totals.py`: the stored rate is just whichever row was processed last, not kept per
+	category). `get_invoice_rows()`'s proportional-by-net-amount allocation is only correct when
+	every row sharing an item_code was actually taxed identically — so this checks both VAT
+	Category AND Item Tax Template, not category alone: two rows can carry the same category yet
+	use different templates configured with different rates (a same-category rate mismatch a
+	category-only check would miss entirely). Blocking it here, at the source, is better than a
+	return/report silently misattributing VAT between boxes months later — use a distinct Item
+	Code per category/template combination instead."""
+	configs_by_item_code: dict[str, set] = {}
 	for row in doc.get("items") or []:
-		categories_by_item_code.setdefault(row.item_code, set()).add(row.get("vat_category"))
+		configs_by_item_code.setdefault(row.item_code, set()).add(
+			(row.get("vat_category"), row.get("item_tax_template"))
+		)
 
-	for item_code, categories in categories_by_item_code.items():
-		if len(categories) > 1:
+	for item_code, configs in configs_by_item_code.items():
+		if len(configs) > 1:
+			categories = sorted({category for category, _template in configs})
 			frappe.throw(
 				_(
-					"Item {0} appears on more than one row with different VAT Categories ({1})."
-					" The same Item Code must use the same VAT Category throughout this invoice —"
-					" VAT return figures can't be reliably split per row otherwise. Use a distinct"
-					" Item Code for each category instead."
-				).format(frappe.bold(item_code), ", ".join(sorted(categories))),
+					"Item {0} appears on more than one row with inconsistent VAT treatment (VAT"
+					" Category and/or Item Tax Template differ: {1}). The same Item Code must use the"
+					" same VAT Category and the same Item Tax Template throughout this invoice — VAT"
+					" return figures can't be reliably split per row otherwise. Use a distinct Item"
+					" Code for each category/template combination instead."
+				).format(frappe.bold(item_code), ", ".join(categories)),
 				title=_("VAT Category Mismatch"),
 			)
 
