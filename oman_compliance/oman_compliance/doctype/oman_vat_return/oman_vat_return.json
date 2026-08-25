@@ -1,0 +1,178 @@
+{
+ "actions": [],
+ "autoname": "OM-VAT-RETURN-.#####",
+ "creation": "2026-08-25 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "from_date",
+  "column_break_ovr1",
+  "to_date",
+  "period_type",
+  "column_break_ovr2",
+  "status",
+  "generate_return",
+  "section_break_boxes",
+  "boxes",
+  "section_break_totals",
+  "total_vat_due",
+  "column_break_ovr3",
+  "input_vat_credit_total",
+  "net_tax_liability",
+  "currency"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ovr1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To Date",
+   "reqd": 1
+  },
+  {
+   "description": "Informational only — Oman VAT filers can be monthly or quarterly depending on registration threshold. From Date/To Date, not this field, are what the return is actually generated against.",
+   "fieldname": "period_type",
+   "fieldtype": "Select",
+   "label": "Period Type",
+   "options": "Monthly\nQuarterly",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ovr2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nFiled",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.status == \"Draft\"",
+   "fieldname": "generate_return",
+   "fieldtype": "Button",
+   "label": "Generate Return"
+  },
+  {
+   "fieldname": "section_break_boxes",
+   "fieldtype": "Section Break",
+   "label": "Return Boxes"
+  },
+  {
+   "fieldname": "boxes",
+   "fieldtype": "Table",
+   "label": "Boxes",
+   "options": "Oman VAT Return Detail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_totals",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "description": "Box 5 — total VAT due, net of credit/debit note adjustments.",
+   "fieldname": "total_vat_due",
+   "fieldtype": "Currency",
+   "label": "Total VAT Due",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ovr3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Box 6 — recoverable input VAT credit, net of purchase credit/debit note adjustments.",
+   "fieldname": "input_vat_credit_total",
+   "fieldtype": "Currency",
+   "label": "Input VAT Credit",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "description": "Box 7 = Box 5 - Box 6.",
+   "fieldname": "net_tax_liability",
+   "fieldtype": "Currency",
+   "label": "Net Tax Liability",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "OMR",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Currency",
+   "options": "Currency"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Oman Compliance",
+ "name": "Oman VAT Return",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "company"
+}

@@ -1,0 +1,84 @@
+{
+ "actions": [],
+ "creation": "2026-08-25 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "box_code",
+  "description",
+  "column_break_ovrd",
+  "taxable_amount",
+  "vat_amount",
+  "adjustment_taxable_amount",
+  "adjustment_vat_amount"
+ ],
+ "fields": [
+  {
+   "description": "OTA's own box numbering (e.g. \"1(a)\", \"4(b)\") — Data, not Select: the row set this app generates is fixed in code, not hand-picked per row, so a Select option list would only need updating in lockstep with the generator anyway.",
+   "fieldname": "box_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Box",
+   "read_only": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ovrd",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "taxable_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Taxable Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vat_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "VAT Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "description": "Credit/debit note (is_return) figure for this box, kept separate from the main columns rather than netted in, for audit traceability.",
+   "fieldname": "adjustment_taxable_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Adjustment Taxable Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "adjustment_vat_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Adjustment VAT Amount",
+   "options": "currency",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Oman Compliance",
+ "name": "Oman VAT Return Detail",
+ "owner": "Administrator",
+ "permissions": [],
+ "quick_entry": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
