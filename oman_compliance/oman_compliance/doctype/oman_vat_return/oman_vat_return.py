@@ -39,7 +39,7 @@ class OmanVATReturn(Document):
 		if self.is_new():
 			return
 
-		if frappe.db.get_value(self.doctype, self.name, "status") == "Filed":
+		if self._get_locked_persisted_status() == "Filed":
 			frappe.throw(_("A Filed return cannot be modified."), title=_("Return Already Filed"))
 
 	def on_trash(self):
@@ -47,8 +47,22 @@ class OmanVATReturn(Document):
 		# before another request filed this same return would otherwise still say "Draft" in
 		# memory and sail through this check, deleting a return that's actually Filed in the
 		# database. Same reasoning as validate_filed_is_immutable() above.
-		if frappe.db.get_value(self.doctype, self.name, "status") == "Filed":
+		if self._get_locked_persisted_status() == "Filed":
 			frappe.throw(_("A Filed return cannot be deleted."), title=_("Return Already Filed"))
+
+	def _get_locked_persisted_status(self) -> str | None:
+		"""A plain `frappe.db.get_value()` read here would still leave a race: one request could
+		read "Draft" a moment before a second, concurrent request files the return and commits, and
+		the first request's save/delete — already past its own check — would still go through once
+		its transaction commits. `SELECT ... FOR UPDATE` instead takes a row lock on this document
+		for the rest of the *current* transaction, so a second concurrent save/delete blocks here
+		until the first one commits, then reads the up-to-date status rather than racing past a
+		stale one — validate()/on_trash() both run inside the same transaction as the mutation
+		they're guarding, so the lock actually covers the write, not just the read."""
+		row = frappe.db.sql(
+			f"select status from `tab{self.doctype}` where name = %s for update", (self.name,)
+		)
+		return row[0][0] if row else None
 
 	@frappe.whitelist()
 	def generate_return(self):
