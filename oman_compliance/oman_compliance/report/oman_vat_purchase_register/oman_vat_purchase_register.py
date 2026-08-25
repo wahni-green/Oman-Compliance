@@ -26,18 +26,32 @@ def get_columns() -> list[dict]:
 	return [
 		{"label": _("Box"), "fieldname": "box_code", "fieldtype": "Data", "width": 70},
 		{"label": _("Description"), "fieldname": "description", "fieldtype": "Data", "width": 260},
-		{"label": _("Taxable Amount"), "fieldname": "taxable_amount", "fieldtype": "Currency", "width": 140},
-		{"label": _("VAT Amount"), "fieldname": "vat_amount", "fieldtype": "Currency", "width": 120},
+		{
+			"label": _("Taxable Amount"),
+			"fieldname": "taxable_amount",
+			"fieldtype": "Currency",
+			"options": "Company:company:default_currency",
+			"width": 140,
+		},
+		{
+			"label": _("VAT Amount"),
+			"fieldname": "vat_amount",
+			"fieldtype": "Currency",
+			"options": "Company:company:default_currency",
+			"width": 120,
+		},
 		{
 			"label": _("Adjustment Taxable Amount"),
 			"fieldname": "adjustment_taxable_amount",
 			"fieldtype": "Currency",
+			"options": "Company:company:default_currency",
 			"width": 190,
 		},
 		{
 			"label": _("Adjustment VAT Amount"),
 			"fieldname": "adjustment_vat_amount",
 			"fieldtype": "Currency",
+			"options": "Company:company:default_currency",
 			"width": 170,
 		},
 	]

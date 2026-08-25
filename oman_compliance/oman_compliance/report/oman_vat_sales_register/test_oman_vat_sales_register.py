@@ -26,6 +26,16 @@ class TestOmanVatSalesRegister(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			execute({"company": self.company})
 
+	def test_currency_columns_are_bound_to_the_selected_companys_currency(self):
+		columns, _data = execute(
+			{"company": self.company, "from_date": self.test_date, "to_date": self.test_date}
+		)
+
+		currency_columns = [column for column in columns if column["fieldtype"] == "Currency"]
+		self.assertTrue(currency_columns)
+		for column in currency_columns:
+			self.assertEqual(column["options"], "Company:company:default_currency")
+
 	def test_report_rows_match_the_underlying_section_totals(self):
 		create_submitted_sales_invoice(
 			self.company,
