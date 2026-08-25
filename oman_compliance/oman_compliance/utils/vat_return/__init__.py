@@ -39,6 +39,15 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 	configured Output/Input VAT Account), `is_fixed_asset` (Purchase Invoice Item only, core
 	ERPNext field), and the doctype-specific parent flags in `_PARENT_FIELDS`.
 	"""
+	# frappe.get_all() below deliberately bypasses per-document permissions (that's what "all" means
+	# here — it's the only way to sum across every invoice in the period) — which is exactly why the
+	# one thing actually gated on the caller's own access, the Company itself, must be checked
+	# explicitly. Without this, any user who can open a Script Report could pass an arbitrary
+	# `company` filter and read that company's VAT totals regardless of their own User Permission
+	# restrictions — the same class of gap fixed in item_tax_template.py's
+	# get_vat_accounts_for_template().
+	frappe.has_permission("Company", "read", doc=company, throw=True)
+
 	invoices = frappe.get_all(
 		doctype,
 		filters={
@@ -86,13 +95,30 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 		for parent, rows in tax_rows_by_parent.items()
 	}
 
+	# item_wise_tax_detail is keyed by item_code, not row (the same limitation
+	# overrides/sales_invoice.py::_get_item_wise_tax_rates already documents) — when an invoice has
+	# two rows sharing an item_code, that one JSON entry is the combined amount across BOTH rows,
+	# not either row's own share. Assigning the whole figure to every matching row would double (or
+	# N-times) count it once summed, so it's allocated across those rows by each row's share of the
+	# item_code's total base_net_amount instead — exact when there's only one row per item_code
+	# (the common case, share = 1), proportional otherwise.
+	net_amount_by_parent_and_item: dict[tuple[str, str], float] = {}
+	for item in items:
+		key = (item.parent, item.item_code)
+		net_amount_by_parent_and_item[key] = net_amount_by_parent_and_item.get(key, 0) + (
+			item.base_net_amount or 0
+		)
+
 	rows = []
 	for item in items:
 		invoice = invoices_by_name[item.parent]
+		total_net_amount = net_amount_by_parent_and_item[(item.parent, item.item_code)]
+		share = (item.base_net_amount or 0) / total_net_amount if total_net_amount else 0
+
 		row = frappe._dict(item)
 		row.is_return = bool(invoice.is_return)
-		row.output_vat_amount = output_vat_by_parent.get(item.parent, {}).get(item.item_code, 0)
-		row.input_vat_amount = input_vat_by_parent.get(item.parent, {}).get(item.item_code, 0)
+		row.output_vat_amount = output_vat_by_parent.get(item.parent, {}).get(item.item_code, 0) * share
+		row.input_vat_amount = input_vat_by_parent.get(item.parent, {}).get(item.item_code, 0) * share
 		for field in _PARENT_FIELDS[doctype]:
 			row[field] = bool(invoice.get(field))
 		rows.append(row)

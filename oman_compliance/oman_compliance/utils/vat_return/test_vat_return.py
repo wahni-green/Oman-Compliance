@@ -6,6 +6,7 @@ from oman_compliance.oman_compliance.utils.vat_return import get_invoice_rows, s
 from oman_compliance.tests import (
 	create_submitted_purchase_invoice,
 	create_submitted_sales_invoice,
+	get_non_oman_test_company,
 	get_oman_test_company,
 	get_oman_test_vat_accounts,
 	get_unique_test_date,
@@ -113,6 +114,54 @@ class TestGetInvoiceRows(FrappeTestCase):
 		rows = get_invoice_rows("Sales Invoice", self.company, self.test_date, self.test_date)
 
 		self.assertEqual(rows, [])
+
+	def test_duplicate_item_code_rows_are_not_double_counted(self):
+		# item_wise_tax_detail is keyed by item_code, not row — a naive read would assign the full
+		# combined VAT amount to each row sharing that item_code, doubling it once summed.
+		create_submitted_sales_invoice(
+			self.company,
+			vat_category="Standard Rated",
+			output_vat_account=self.output_account,
+			rate=5,
+			net_amount=100,
+			extra_item_net_amounts=[300],
+			posting_date=self.test_date,
+		)
+
+		rows = get_invoice_rows("Sales Invoice", self.company, self.test_date, self.test_date)
+
+		self.assertEqual(len(rows), 2)
+		self.assertEqual(sum(row.base_net_amount for row in rows), 400)
+		# Total VAT across both rows must equal the real invoice-level VAT (400 * 5% = 20), not
+		# 20 counted once per row (40).
+		self.assertEqual(sum(row.output_vat_amount for row in rows), 20)
+		# Allocated proportionally to each row's own share of the combined net amount.
+		by_net_amount = {row.base_net_amount: row.output_vat_amount for row in rows}
+		self.assertEqual(by_net_amount[100], 5)
+		self.assertEqual(by_net_amount[300], 15)
+
+	def test_company_permission_is_enforced(self):
+		other_company = get_non_oman_test_company()
+
+		test_user_email = "_test_vat_return_permission@example.com"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": test_user_email,
+				"first_name": "Test VAT Return Permission",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Accounts User"}],
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{"doctype": "User Permission", "user": user.name, "allow": "Company", "for_value": other_company}
+		).insert(ignore_permissions=True)
+
+		frappe.set_user(user.name)
+		self.addCleanup(frappe.set_user, "Administrator")
+
+		with self.assertRaises(frappe.PermissionError):
+			get_invoice_rows("Sales Invoice", self.company, self.test_date, self.test_date)
 
 
 class TestSummarizeBox(FrappeTestCase):
