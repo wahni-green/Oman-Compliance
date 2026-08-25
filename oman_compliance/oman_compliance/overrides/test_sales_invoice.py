@@ -3,13 +3,173 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oman_compliance.oman_compliance.overrides.sales_invoice import validate
+from oman_compliance.oman_compliance.overrides.sales_invoice import (
+	set_export_flag,
+	validate,
+	validate_no_mixed_vat_category_per_item_code,
+	validate_vat_category_tax_consistency,
+)
 from oman_compliance.tests import (
 	get_non_oman_test_company,
 	get_oman_test_company,
 	get_test_tax_account,
 	set_vat_accounts,
 )
+
+
+class TestSetExportFlag(FrappeTestCase):
+	def setUp(self):
+		self.oman_company = get_oman_test_company()
+
+	def test_blank_addresses_are_not_an_export(self):
+		doc = frappe._dict(
+			company=self.oman_company, shipping_address_name=None, customer_address=None, is_export=0
+		)
+
+		set_export_flag(doc)
+
+		self.assertFalse(doc.is_export)
+
+	def test_foreign_shipping_address_is_an_export(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Foreign Shipping Address",
+				"address_type": "Shipping",
+				"address_line1": "Somewhere Abroad",
+				"city": "Dubai",
+				"country": "United Arab Emirates",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(
+			company=self.oman_company,
+			shipping_address_name=address.name,
+			customer_address=None,
+			is_export=0,
+		)
+
+		set_export_flag(doc)
+
+		self.assertTrue(doc.is_export)
+
+	def test_domestic_shipping_address_is_not_an_export(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Domestic Shipping Address",
+				"address_type": "Shipping",
+				"address_line1": "Muscat",
+				"city": "Muscat",
+				"country": "Oman",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(
+			company=self.oman_company,
+			shipping_address_name=address.name,
+			customer_address=None,
+			is_export=0,
+		)
+
+		set_export_flag(doc)
+
+		self.assertFalse(doc.is_export)
+
+	def test_customer_address_is_the_fallback_when_shipping_is_blank(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Foreign Customer Address",
+				"address_type": "Billing",
+				"address_line1": "Somewhere Abroad",
+				"city": "Dubai",
+				"country": "United Arab Emirates",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(
+			company=self.oman_company, shipping_address_name=None, customer_address=address.name, is_export=0
+		)
+
+		set_export_flag(doc)
+
+		self.assertTrue(doc.is_export)
+
+	def test_shipping_address_takes_priority_over_customer_address(self):
+		domestic_shipping = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Priority Domestic Shipping Address",
+				"address_type": "Shipping",
+				"address_line1": "Muscat",
+				"city": "Muscat",
+				"country": "Oman",
+			}
+		).insert()
+		self.addCleanup(domestic_shipping.delete)
+		foreign_customer = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Priority Foreign Customer Address",
+				"address_type": "Billing",
+				"address_line1": "Somewhere Abroad",
+				"city": "Dubai",
+				"country": "United Arab Emirates",
+			}
+		).insert()
+		self.addCleanup(foreign_customer.delete)
+
+		doc = frappe._dict(
+			company=self.oman_company,
+			shipping_address_name=domestic_shipping.name,
+			customer_address=foreign_customer.name,
+			is_export=0,
+		)
+
+		set_export_flag(doc)
+
+		self.assertFalse(doc.is_export)
+
+	def test_changing_to_export_notifies_the_user(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Foreign Shipping Address Notify",
+				"address_type": "Shipping",
+				"address_line1": "Somewhere Abroad",
+				"city": "Dubai",
+				"country": "United Arab Emirates",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(
+			company=self.oman_company,
+			shipping_address_name=address.name,
+			customer_address=None,
+			is_export=0,
+		)
+
+		frappe.message_log.clear()
+		set_export_flag(doc)
+
+		self.assertTrue(doc.is_export)
+		self.assertTrue(frappe.get_message_log())
+
+	def test_unchanged_value_does_not_notify(self):
+		doc = frappe._dict(
+			company=self.oman_company, shipping_address_name=None, customer_address=None, is_export=0
+		)
+
+		frappe.message_log.clear()
+		set_export_flag(doc)
+
+		self.assertFalse(doc.is_export)
+		self.assertFalse(frappe.get_message_log())
 
 
 class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
@@ -123,9 +283,12 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
 
-	def test_duplicate_item_code_with_mixed_categories_is_not_falsely_rejected(self):
+	def test_duplicate_item_code_with_mixed_categories_does_not_falsely_trip_the_rate_check(self):
 		# item_wise_tax_detail is keyed by item_code, not row, so ERPNext can't tell these two
-		# rows for the same item apart here — the merged rate must not block the invoice.
+		# rows for the same item apart here — validate_vat_category_tax_consistency's own
+		# rate-based check must not misfire against one of a legitimately mixed set (that's a
+		# separate concern from whether the mismatch itself is allowed at all — see
+		# validate_no_mixed_vat_category_per_item_code below, which is what actually blocks it).
 		doc = frappe._dict(
 			company=self.oman_company,
 			customer_address=None,
@@ -141,7 +304,95 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 			],
 		)
 
-		validate(doc)  # should not raise
+		validate_vat_category_tax_consistency(doc)  # should not raise
+
+	def test_duplicate_item_code_with_mixed_categories_is_rejected(self):
+		# item_wise_tax_detail is keyed by item_code, not row: once merged, there is no way to
+		# recover which row a combined VAT amount actually belongs to (ERPNext's own
+		# taxes_and_totals.py only preserves the last-processed row's rate) — blocked outright
+		# rather than risking a wrong figure in a later VAT return/register.
+		doc = frappe._dict(
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Zero Rated"),
+			],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_no_mixed_vat_category_per_item_code(doc)
+
+	def test_duplicate_item_code_with_the_same_category_is_accepted(self):
+		doc = frappe._dict(
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Standard Rated"),
+			],
+		)
+
+		validate_no_mixed_vat_category_per_item_code(doc)  # should not raise
+
+	def test_duplicate_item_code_with_same_category_but_different_template_is_rejected(self):
+		# Category alone isn't a strong enough signal that two rows were actually taxed
+		# identically — two "Standard Rated" rows could use different Item Tax Templates
+		# configured with different rates, which a category-only check would miss entirely.
+		doc = frappe._dict(
+			items=[
+				frappe._dict(
+					idx=1,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template A",
+				),
+				frappe._dict(
+					idx=2,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template B",
+				),
+			],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_no_mixed_vat_category_per_item_code(doc)
+
+	def test_duplicate_item_code_with_the_same_category_and_template_is_accepted(self):
+		doc = frappe._dict(
+			items=[
+				frappe._dict(
+					idx=1,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template A",
+				),
+				frappe._dict(
+					idx=2,
+					item_code="_Test Item",
+					vat_category="Standard Rated",
+					item_tax_template="Template A",
+				),
+			],
+		)
+
+		validate_no_mixed_vat_category_per_item_code(doc)  # should not raise
+
+	def test_full_validate_rejects_a_mixed_category_duplicate_item_code(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer_address=None,
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Zero Rated"),
+			],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate(doc)
 
 	def test_unrelated_item_tax_does_not_affect_other_rows(self):
 		doc = frappe._dict(
@@ -230,3 +481,4 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 		)
 
 		validate(doc)  # should not raise
+		self.assertIsNone(doc.get("is_export"))

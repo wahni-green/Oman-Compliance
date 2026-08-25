@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from oman_compliance.oman_compliance.constants import DEFAULT_VAT_CATEGORY
+from oman_compliance.oman_compliance.constants import DEFAULT_VAT_CATEGORY, GCC_COUNTRIES
 from oman_compliance.oman_compliance.utils.company import is_oman_company
 from oman_compliance.oman_compliance.utils.tax_account import (
 	get_input_vat_account,
@@ -18,7 +18,10 @@ def validate(doc, method=None):
 		return
 
 	validate_reverse_charge(doc)
+	validate_no_mixed_vat_category_per_item_code(doc)
+	set_gcc_supplier_flag(doc)
 	set_import_of_goods_flag(doc)
+	validate_postponed_import_vat(doc)
 
 
 def validate_reverse_charge(doc, method=None):
@@ -114,6 +117,40 @@ def _set_default_vat_category(doc):
 		)
 
 
+def validate_no_mixed_vat_category_per_item_code(doc):
+	"""ERPNext's `item_wise_tax_detail` (read by `utils/vat_return.get_invoice_rows()` when
+	generating a VAT return/register) is keyed by item_code, not row — if the same item_code
+	appears more than once on this invoice, there is no way to later recover how much of the
+	combined VAT amount belongs to which row (confirmed against ERPNext's own
+	`taxes_and_totals.py`: the stored rate is just whichever row was processed last, not kept per
+	category). `get_invoice_rows()`'s proportional-by-net-amount allocation is only correct when
+	every row sharing an item_code was actually taxed identically — so this checks both VAT
+	Category AND Item Tax Template, not category alone: two rows can carry the same category yet
+	use different templates configured with different rates (a same-category rate mismatch a
+	category-only check would miss entirely). Blocking it here, at the source, is better than a
+	return/report silently misattributing VAT between boxes months later — use a distinct Item
+	Code per category/template combination instead."""
+	configs_by_item_code: dict[str, set] = {}
+	for row in doc.get("items") or []:
+		configs_by_item_code.setdefault(row.item_code, set()).add(
+			(row.get("vat_category"), row.get("item_tax_template"))
+		)
+
+	for item_code, configs in configs_by_item_code.items():
+		if len(configs) > 1:
+			categories = sorted({category for category, _template in configs})
+			frappe.throw(
+				_(
+					"Item {0} appears on more than one row with inconsistent VAT treatment (VAT"
+					" Category and/or Item Tax Template differ: {1}). The same Item Code must use the"
+					" same VAT Category and the same Item Tax Template throughout this invoice — VAT"
+					" return figures can't be reliably split per row otherwise. Use a distinct Item"
+					" Code for each category/template combination instead."
+				).format(frappe.bold(item_code), ", ".join(categories)),
+				title=_("VAT Category Mismatch"),
+			)
+
+
 def set_import_of_goods_flag(doc, method=None):
 	"""VAT return box 4 (imports of goods) is distinct from box 2 (reverse charge, which covers
 	imported *services*) — this is a computed flag, not a manual one like Reverse Charge
@@ -121,7 +158,7 @@ def set_import_of_goods_flag(doc, method=None):
 	Always recomputed on save so a later edit to the Dispatch Address keeps it correct; the user
 	is notified whenever this changes the stored value, since the field itself is read-only."""
 	previous_value = bool(doc.get("is_import_of_goods"))
-	new_value = _is_import_of_goods(doc)
+	new_value = is_import_of_goods_candidate(doc)
 
 	doc.is_import_of_goods = new_value
 
@@ -135,7 +172,7 @@ def set_import_of_goods_flag(doc, method=None):
 		)
 
 
-def _is_import_of_goods(doc) -> bool:
+def is_import_of_goods_candidate(doc) -> bool:
 	dispatch_address = doc.get("dispatch_address")
 	if not dispatch_address:
 		return False
@@ -149,3 +186,44 @@ def _is_import_of_goods(doc) -> bool:
 		return False
 
 	return dispatch_country != company_country
+
+
+def set_gcc_supplier_flag(doc, method=None):
+	"""VAT return box 2 splits into 2(a) intra-GCC and 2(b) non-GCC reverse-charge purchases —
+	this is about who the supplier is, not where goods are dispatched from (that's
+	is_import_of_goods's concern above), so it deliberately reads the Supplier Address rather than
+	the Dispatch Address. Always recomputed on save, same as Import of Goods, since only its *use*
+	in a box total is conditional on Reverse Charge Applicable, not whether it stays current."""
+	previous_value = bool(doc.get("is_gcc_supplier"))
+	new_value = is_gcc_supplier_candidate(doc)
+
+	doc.is_gcc_supplier = new_value
+
+	if previous_value != new_value:
+		frappe.msgprint(
+			_("GCC Supplier set to {0}, based on the Supplier Address's country.").format(
+				_("Yes") if new_value else _("No")
+			),
+			indicator="blue",
+			alert=True,
+		)
+
+
+def is_gcc_supplier_candidate(doc) -> bool:
+	supplier_address = doc.get("supplier_address")
+	if not supplier_address:
+		return False
+
+	supplier_country = frappe.db.get_value("Address", supplier_address, "country")
+	if not supplier_country:
+		return False
+
+	return supplier_country in GCC_COUNTRIES
+
+
+def validate_postponed_import_vat(doc, method=None):
+	if doc.get("is_postponed_import_vat") and not doc.get("is_import_of_goods"):
+		frappe.throw(
+			_("Postponed Import VAT can only be checked when Import of Goods is also checked."),
+			title=_("Invalid Postponed Import VAT"),
+		)

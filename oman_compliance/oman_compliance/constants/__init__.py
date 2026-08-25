@@ -14,6 +14,13 @@ DEFAULT_VAT_CATEGORY = "Standard Rated"
 ZONE_DEFAULT_VAT_CATEGORY = "Zero Rated"
 NO_TAX_VAT_CATEGORIES = {"Zero Rated", "Exempt", "Out of Scope"}
 
+# The other five GCC member states besides Oman itself — used to split VAT return box 2 into
+# 2(a) intra-GCC vs 2(b) non-GCC reverse-charge purchases (box 2(a) isn't activated by the OTA yet,
+# per OMAN_COMPLIANCE_PLAN.md's Phase 3 alignment note, but the classification is still computed so
+# the return is ready once it is). Exact spelling confirmed against this bench's own Country
+# doctype records, not guessed.
+GCC_COUNTRIES = {"Saudi Arabia", "United Arab Emirates", "Kuwait", "Qatar", "Bahrain"}
+
 # A leading blank option, not just "\n".join(VAT_CATEGORIES): Frappe auto-fills any Select field
 # with no explicit `default` to its *first* option on every new document/child row
 # (frappe.model.create_new.get_static_default_value), before our own validate() hooks ever run.

@@ -16,6 +16,45 @@ def validate(doc, method=None):
 
 	set_vat_category_defaults(doc)
 	validate_vat_category_tax_consistency(doc)
+	validate_no_mixed_vat_category_per_item_code(doc)
+	set_export_flag(doc)
+
+
+def set_export_flag(doc, method=None):
+	"""VAT return box 3(a) exports vs box 1(b) domestic zero-rated — mirrors
+	purchase_invoice.set_import_of_goods_flag's shape, on the sales side. Shipping Address is the
+	better signal for "where does this actually go" than Customer Address alone (a domestic
+	customer can be billed at a foreign address for unrelated reasons), so it's checked first;
+	Customer Address is only the fallback for invoices with no distinct shipping address set."""
+	previous_value = bool(doc.get("is_export"))
+	new_value = is_export_candidate(doc)
+
+	doc.is_export = new_value
+
+	if previous_value != new_value:
+		frappe.msgprint(
+			_("Export set to {0}, based on the Shipping/Customer Address's country.").format(
+				_("Yes") if new_value else _("No")
+			),
+			indicator="blue",
+			alert=True,
+		)
+
+
+def is_export_candidate(doc) -> bool:
+	address = doc.get("shipping_address_name") or doc.get("customer_address")
+	if not address:
+		return False
+
+	address_country = frappe.db.get_value("Address", address, "country")
+	if not address_country:
+		return False
+
+	company_country = frappe.get_cached_value("Company", doc.company, "country")
+	if not company_country:
+		return False
+
+	return address_country != company_country
 
 
 def validate_vat_category_tax_consistency(doc):
@@ -62,6 +101,44 @@ def validate_vat_category_tax_consistency(doc):
 				),
 				title=_("VAT Category Mismatch"),
 			)
+
+
+def validate_no_mixed_vat_category_per_item_code(doc):
+	"""ERPNext's `item_wise_tax_detail` (read by `utils/vat_return.get_invoice_rows()` when
+	generating a VAT return/register) is keyed by item_code, not row — if the same item_code
+	appears more than once on this invoice, there is no way to later recover how much of the
+	combined VAT amount belongs to which row (confirmed against ERPNext's own
+	`taxes_and_totals.py`: the stored rate is just whichever row was processed last, not kept per
+	category). `get_invoice_rows()`'s proportional-by-net-amount allocation is only correct when
+	every row sharing an item_code was actually taxed identically — so this checks both VAT
+	Category AND Item Tax Template, not category alone: two rows can carry the same category yet
+	use different templates configured with different rates (a same-category rate mismatch a
+	category-only check would miss entirely). Blocking it here, at the source, is better than a
+	return/report silently misattributing VAT between boxes months later — use a distinct Item
+	Code per category/template combination instead."""
+	configs_by_item_code = _get_vat_configs_by_item_code(doc.get("items") or [])
+
+	for item_code, configs in configs_by_item_code.items():
+		if len(configs) > 1:
+			categories = sorted({category for category, _template in configs})
+			frappe.throw(
+				_(
+					"Item {0} appears on more than one row with inconsistent VAT treatment (VAT"
+					" Category and/or Item Tax Template differ: {1}). The same Item Code must use the"
+					" same VAT Category and the same Item Tax Template throughout this invoice — VAT"
+					" return figures can't be reliably split per row otherwise. Use a distinct Item"
+					" Code for each category/template combination instead."
+				).format(frappe.bold(item_code), ", ".join(categories)),
+				title=_("VAT Category Mismatch"),
+			)
+
+
+def _get_vat_configs_by_item_code(item_rows) -> dict:
+	configs: dict[str, set] = {}
+	for row in item_rows:
+		configs.setdefault(row.item_code, set()).add((row.get("vat_category"), row.get("item_tax_template")))
+
+	return configs
 
 
 def _get_vat_categories_by_item_code(item_rows) -> dict:

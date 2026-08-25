@@ -123,15 +123,56 @@ CUSTOM_FIELDS = {
 			"module": MODULE,
 		},
 		{
+			"fieldname": "is_gcc_supplier",
+			"label": "GCC Supplier",
+			"fieldtype": "Check",
+			"insert_after": "is_reverse_charge",
+			"read_only": 1,
+			"translatable": 0,
+			"description": "Automatically set when the Supplier Address's country is a GCC member"
+			" state other than Oman. Only relevant when Reverse Charge Applicable is checked — splits"
+			" Oman VAT return box 2 into 2(a) intra-GCC (not yet activated by the OTA) vs 2(b)"
+			" non-GCC reverse-charge purchases.",
+			"module": MODULE,
+		},
+		{
 			"fieldname": "is_import_of_goods",
 			"label": "Import of Goods",
 			"fieldtype": "Check",
-			"insert_after": "is_reverse_charge",
+			"insert_after": "is_gcc_supplier",
 			"read_only": 1,
 			"translatable": 0,
 			"description": "Automatically set from the Dispatch Address's country (Oman VAT return"
 			" box 4 — distinct from Reverse Charge above, which covers imported services, not goods)."
 			" A blank Dispatch Address is treated as not an import.",
+			"module": MODULE,
+		},
+		{
+			"fieldname": "is_postponed_import_vat",
+			"label": "Postponed Import VAT",
+			"fieldtype": "Check",
+			"insert_after": "is_import_of_goods",
+			"translatable": 0,
+			"description": "Manual: check if customs deferred/postponed-payment VAT was elected for"
+			" this import (Oman VAT return box 4(a), a subset of box 4(b) Total Goods Imported)."
+			" Not derivable from ERPNext data — this is a customs election made at the border, so"
+			" unlike Import of Goods above it must be set by the preparer, and is only meaningful"
+			" when Import of Goods is checked.",
+			"module": MODULE,
+		},
+	],
+	"Sales Invoice": [
+		{
+			"fieldname": "is_export",
+			"label": "Export",
+			"fieldtype": "Check",
+			"insert_after": "customer_address",
+			"read_only": 1,
+			"translatable": 0,
+			"description": "Automatically set when the Shipping Address's country (falling back to"
+			" the Customer Address if no Shipping Address is set) differs from this Company's"
+			" country (Oman VAT return box 3(a) — distinct from a domestic Zero Rated sale, box"
+			" 1(b)). Only meaningful when VAT Category is Zero Rated.",
 			"module": MODULE,
 		},
 	],
