@@ -5,6 +5,7 @@ from oman_compliance.oman_compliance.overrides.purchase_invoice import (
 	set_gcc_supplier_flag,
 	set_import_of_goods_flag,
 	validate,
+	validate_no_mixed_vat_category_per_item_code,
 	validate_postponed_import_vat,
 	validate_reverse_charge,
 )
@@ -456,3 +457,40 @@ class TestValidatePostponedImportVat(FrappeTestCase):
 		doc = frappe._dict(is_import_of_goods=0, is_postponed_import_vat=0)
 
 		validate_postponed_import_vat(doc)  # should not raise
+
+
+class TestValidateNoMixedVatCategoryPerItemCode(FrappeTestCase):
+	def test_duplicate_item_code_with_mixed_categories_is_rejected(self):
+		# item_wise_tax_detail is keyed by item_code, not row: once merged, there is no way to
+		# recover which row a combined VAT amount actually belongs to (ERPNext's own
+		# taxes_and_totals.py only preserves the last-processed row's rate) — blocked outright
+		# rather than risking a wrong figure in a later VAT return/register.
+		doc = frappe._dict(
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Zero Rated"),
+			],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_no_mixed_vat_category_per_item_code(doc)
+
+	def test_duplicate_item_code_with_the_same_category_is_accepted(self):
+		doc = frappe._dict(
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Standard Rated"),
+			],
+		)
+
+		validate_no_mixed_vat_category_per_item_code(doc)  # should not raise
+
+	def test_different_item_codes_with_different_categories_are_unaffected(self):
+		doc = frappe._dict(
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item A", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item B", vat_category="Zero Rated"),
+			],
+		)
+
+		validate_no_mixed_vat_category_per_item_code(doc)  # should not raise

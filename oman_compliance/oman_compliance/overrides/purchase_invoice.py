@@ -18,6 +18,7 @@ def validate(doc, method=None):
 		return
 
 	validate_reverse_charge(doc)
+	validate_no_mixed_vat_category_per_item_code(doc)
 	set_gcc_supplier_flag(doc)
 	set_import_of_goods_flag(doc)
 	validate_postponed_import_vat(doc)
@@ -114,6 +115,31 @@ def _set_default_vat_category(doc):
 		row.vat_category = (
 			get_item_tax_template_category(row.get("item_tax_template")) or DEFAULT_VAT_CATEGORY
 		)
+
+
+def validate_no_mixed_vat_category_per_item_code(doc):
+	"""ERPNext's `item_wise_tax_detail` (read by `utils/vat_return.get_invoice_rows()` when
+	generating a VAT return/register) is keyed by item_code, not row — if the same item_code
+	appears more than once on this invoice with different VAT Categories, there is no way to later
+	recover how much of the combined VAT amount belongs to which row (confirmed against ERPNext's
+	own `taxes_and_totals.py`: the stored rate is just whichever row was processed last, not kept
+	per category). Blocking it here, at the source, is better than a return/report silently
+	misattributing VAT between boxes months later — use a distinct Item Code per category instead."""
+	categories_by_item_code: dict[str, set] = {}
+	for row in doc.get("items") or []:
+		categories_by_item_code.setdefault(row.item_code, set()).add(row.get("vat_category"))
+
+	for item_code, categories in categories_by_item_code.items():
+		if len(categories) > 1:
+			frappe.throw(
+				_(
+					"Item {0} appears on more than one row with different VAT Categories ({1})."
+					" The same Item Code must use the same VAT Category throughout this invoice —"
+					" VAT return figures can't be reliably split per row otherwise. Use a distinct"
+					" Item Code for each category instead."
+				).format(frappe.bold(item_code), ", ".join(sorted(categories))),
+				title=_("VAT Category Mismatch"),
+			)
 
 
 def set_import_of_goods_flag(doc, method=None):

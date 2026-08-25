@@ -3,7 +3,12 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from oman_compliance.oman_compliance.overrides.sales_invoice import set_export_flag, validate
+from oman_compliance.oman_compliance.overrides.sales_invoice import (
+	set_export_flag,
+	validate,
+	validate_no_mixed_vat_category_per_item_code,
+	validate_vat_category_tax_consistency,
+)
 from oman_compliance.tests import (
 	get_non_oman_test_company,
 	get_oman_test_company,
@@ -278,9 +283,12 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
 
-	def test_duplicate_item_code_with_mixed_categories_is_not_falsely_rejected(self):
+	def test_duplicate_item_code_with_mixed_categories_does_not_falsely_trip_the_rate_check(self):
 		# item_wise_tax_detail is keyed by item_code, not row, so ERPNext can't tell these two
-		# rows for the same item apart here — the merged rate must not block the invoice.
+		# rows for the same item apart here — validate_vat_category_tax_consistency's own
+		# rate-based check must not misfire against one of a legitimately mixed set (that's a
+		# separate concern from whether the mismatch itself is allowed at all — see
+		# validate_no_mixed_vat_category_per_item_code below, which is what actually blocks it).
 		doc = frappe._dict(
 			company=self.oman_company,
 			customer_address=None,
@@ -296,7 +304,51 @@ class TestSalesInvoiceVatCategoryValidation(FrappeTestCase):
 			],
 		)
 
-		validate(doc)  # should not raise
+		validate_vat_category_tax_consistency(doc)  # should not raise
+
+	def test_duplicate_item_code_with_mixed_categories_is_rejected(self):
+		# item_wise_tax_detail is keyed by item_code, not row: once merged, there is no way to
+		# recover which row a combined VAT amount actually belongs to (ERPNext's own
+		# taxes_and_totals.py only preserves the last-processed row's rate) — blocked outright
+		# rather than risking a wrong figure in a later VAT return/register.
+		doc = frappe._dict(
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Zero Rated"),
+			],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_no_mixed_vat_category_per_item_code(doc)
+
+	def test_duplicate_item_code_with_the_same_category_is_accepted(self):
+		doc = frappe._dict(
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Standard Rated"),
+			],
+		)
+
+		validate_no_mixed_vat_category_per_item_code(doc)  # should not raise
+
+	def test_full_validate_rejects_a_mixed_category_duplicate_item_code(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer_address=None,
+			items=[
+				frappe._dict(idx=1, item_code="_Test Item", vat_category="Standard Rated"),
+				frappe._dict(idx=2, item_code="_Test Item", vat_category="Zero Rated"),
+			],
+			taxes=[
+				frappe._dict(
+					account_head=self.tax_account,
+					item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+				)
+			],
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate(doc)
 
 	def test_unrelated_item_tax_does_not_affect_other_rows(self):
 		doc = frappe._dict(
