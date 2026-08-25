@@ -1,3 +1,5 @@
+import json
+
 import frappe
 
 
@@ -50,16 +52,28 @@ def is_input_vat_account(account_head: str | None, company: str | None) -> bool:
 	return account_head == get_input_vat_account(company)
 
 
-# TODO (not yet implemented — tracked in OMAN_COMPLIANCE_PLAN.md Phase 2):
-# 1. Validate, on Item Tax Template itself, that its `taxes` rows actually reference the
-#    company's configured Output VAT Account and/or Input VAT Account — mirroring India
-#    Compliance's gst_india/overrides/item_tax_template.py::validate_tax_rates(), which checks the
-#    template's tax rows against the company's configured GST accounts (via
-#    get_valid_accounts()) and throws on a mismatch, rather than silently allowing a
-#    VAT-category-tagged template with the wrong account wired in.
-# 2. A "Fetch Account" button on Item Tax Template (client script + a new
-#    @frappe.whitelist() method here, e.g. get_vat_accounts_for_template(company)) that
-#    auto-adds the missing `taxes` row(s) for the company's configured Output/Input VAT
-#    Accounts — mirroring India Compliance's gst_india/client_scripts/item_tax_template.js
-#    (fetch_and_update_missing_gst_accounts(), bound to a `fetch_gst_accounts` button field) and
-#    its server-side gst_india/overrides/item_tax_template.py::get_valid_gst_accounts().
+def get_item_wise_vat_amounts(tax_rows, company: str | None, is_matching_account) -> dict[str, float]:
+	"""Sums `item_wise_tax_detail` VAT *amounts* (`detail_row[1]`, already base/company-currency —
+	see OMAN_COMPLIANCE_PLAN.md's Phase 2/3 alignment note) for tax rows posting to whichever
+	account `is_matching_account` identifies (`is_output_vat_account` or `is_input_vat_account`),
+	keyed by item_code. Sibling to `overrides/sales_invoice.py::_get_item_wise_tax_rates`, which
+	reads `detail_row[0]` (the rate, for the VAT-category-mismatch check) instead of the amount —
+	kept separate rather than merged since the two calls read different halves of the same tuple
+	for different purposes, but factored out here so every `utils/vat_return` section function
+	shares one `item_wise_tax_detail` parse instead of five independent copies of this
+	currency-sensitive logic."""
+	amounts: dict[str, float] = {}
+
+	for tax in tax_rows:
+		if not is_matching_account(tax.get("account_head"), company):
+			continue
+
+		detail = tax.get("item_wise_tax_detail")
+		if not detail:
+			continue
+
+		parsed = json.loads(detail) if isinstance(detail, str) else detail
+		for item_code, detail_row in parsed.items():
+			amounts[item_code] = amounts.get(item_code, 0) + detail_row[1]
+
+	return amounts
