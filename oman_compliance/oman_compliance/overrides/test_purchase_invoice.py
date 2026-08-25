@@ -2,8 +2,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oman_compliance.oman_compliance.overrides.purchase_invoice import (
+	set_gcc_supplier_flag,
 	set_import_of_goods_flag,
 	validate,
+	validate_postponed_import_vat,
 	validate_reverse_charge,
 )
 from oman_compliance.tests import (
@@ -249,12 +251,14 @@ class TestPurchaseInvoiceValidateGating(FrappeTestCase):
 			taxes=[],
 			items=[frappe._dict(vat_category=None)],
 			dispatch_address=None,
+			supplier_address=None,
 		)
 
 		validate(doc)
 
 		self.assertEqual(doc.get("items")[0].vat_category, "Standard Rated")
 		self.assertFalse(doc.is_import_of_goods)
+		self.assertFalse(doc.is_gcc_supplier)
 
 
 class TestSetImportOfGoodsFlag(FrappeTestCase):
@@ -335,3 +339,120 @@ class TestSetImportOfGoodsFlag(FrappeTestCase):
 
 		self.assertFalse(doc.is_import_of_goods)
 		self.assertFalse(frappe.get_message_log())
+
+
+class TestSetGccSupplierFlag(FrappeTestCase):
+	def setUp(self):
+		self.oman_company = get_oman_test_company()
+
+	def test_blank_supplier_address_is_not_gcc(self):
+		doc = frappe._dict(company=self.oman_company, supplier_address=None, is_gcc_supplier=0)
+
+		set_gcc_supplier_flag(doc)
+
+		self.assertFalse(doc.is_gcc_supplier)
+
+	def test_gcc_supplier_address_is_gcc(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test GCC Supplier Address",
+				"address_type": "Billing",
+				"address_line1": "Somewhere in the UAE",
+				"city": "Dubai",
+				"country": "United Arab Emirates",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(company=self.oman_company, supplier_address=address.name, is_gcc_supplier=0)
+
+		set_gcc_supplier_flag(doc)
+
+		self.assertTrue(doc.is_gcc_supplier)
+
+	def test_non_gcc_foreign_supplier_address_is_not_gcc(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Non-GCC Supplier Address",
+				"address_type": "Billing",
+				"address_line1": "Somewhere in India",
+				"city": "Mumbai",
+				"country": "India",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(company=self.oman_company, supplier_address=address.name, is_gcc_supplier=0)
+
+		set_gcc_supplier_flag(doc)
+
+		self.assertFalse(doc.is_gcc_supplier)
+
+	def test_domestic_supplier_address_is_not_gcc(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test Domestic Supplier Address",
+				"address_type": "Billing",
+				"address_line1": "Muscat",
+				"city": "Muscat",
+				"country": "Oman",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(company=self.oman_company, supplier_address=address.name, is_gcc_supplier=0)
+
+		set_gcc_supplier_flag(doc)
+
+		self.assertFalse(doc.is_gcc_supplier)
+
+	def test_changing_to_gcc_notifies_the_user(self):
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": "_Test GCC Supplier Address Notify",
+				"address_type": "Billing",
+				"address_line1": "Somewhere in the UAE",
+				"city": "Dubai",
+				"country": "United Arab Emirates",
+			}
+		).insert()
+		self.addCleanup(address.delete)
+
+		doc = frappe._dict(company=self.oman_company, supplier_address=address.name, is_gcc_supplier=0)
+
+		frappe.message_log.clear()
+		set_gcc_supplier_flag(doc)
+
+		self.assertTrue(doc.is_gcc_supplier)
+		self.assertTrue(frappe.get_message_log())
+
+	def test_unchanged_value_does_not_notify(self):
+		doc = frappe._dict(company=self.oman_company, supplier_address=None, is_gcc_supplier=0)
+
+		frappe.message_log.clear()
+		set_gcc_supplier_flag(doc)
+
+		self.assertFalse(doc.is_gcc_supplier)
+		self.assertFalse(frappe.get_message_log())
+
+
+class TestValidatePostponedImportVat(FrappeTestCase):
+	def test_postponed_without_import_of_goods_is_rejected(self):
+		doc = frappe._dict(is_import_of_goods=0, is_postponed_import_vat=1)
+
+		with self.assertRaises(frappe.ValidationError):
+			validate_postponed_import_vat(doc)
+
+	def test_postponed_with_import_of_goods_is_accepted(self):
+		doc = frappe._dict(is_import_of_goods=1, is_postponed_import_vat=1)
+
+		validate_postponed_import_vat(doc)  # should not raise
+
+	def test_not_postponed_is_always_accepted(self):
+		doc = frappe._dict(is_import_of_goods=0, is_postponed_import_vat=0)
+
+		validate_postponed_import_vat(doc)  # should not raise

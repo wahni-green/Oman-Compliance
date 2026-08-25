@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from oman_compliance.oman_compliance.constants import DEFAULT_VAT_CATEGORY
+from oman_compliance.oman_compliance.constants import DEFAULT_VAT_CATEGORY, GCC_COUNTRIES
 from oman_compliance.oman_compliance.utils.company import is_oman_company
 from oman_compliance.oman_compliance.utils.tax_account import (
 	get_input_vat_account,
@@ -18,7 +18,9 @@ def validate(doc, method=None):
 		return
 
 	validate_reverse_charge(doc)
+	set_gcc_supplier_flag(doc)
 	set_import_of_goods_flag(doc)
+	validate_postponed_import_vat(doc)
 
 
 def validate_reverse_charge(doc, method=None):
@@ -149,3 +151,44 @@ def _is_import_of_goods(doc) -> bool:
 		return False
 
 	return dispatch_country != company_country
+
+
+def set_gcc_supplier_flag(doc, method=None):
+	"""VAT return box 2 splits into 2(a) intra-GCC and 2(b) non-GCC reverse-charge purchases —
+	this is about who the supplier is, not where goods are dispatched from (that's
+	is_import_of_goods's concern above), so it deliberately reads the Supplier Address rather than
+	the Dispatch Address. Always recomputed on save, same as Import of Goods, since only its *use*
+	in a box total is conditional on Reverse Charge Applicable, not whether it stays current."""
+	previous_value = bool(doc.get("is_gcc_supplier"))
+	new_value = _is_gcc_supplier(doc)
+
+	doc.is_gcc_supplier = new_value
+
+	if previous_value != new_value:
+		frappe.msgprint(
+			_("GCC Supplier set to {0}, based on the Supplier Address's country.").format(
+				_("Yes") if new_value else _("No")
+			),
+			indicator="blue",
+			alert=True,
+		)
+
+
+def _is_gcc_supplier(doc) -> bool:
+	supplier_address = doc.get("supplier_address")
+	if not supplier_address:
+		return False
+
+	supplier_country = frappe.db.get_value("Address", supplier_address, "country")
+	if not supplier_country:
+		return False
+
+	return supplier_country in GCC_COUNTRIES
+
+
+def validate_postponed_import_vat(doc, method=None):
+	if doc.get("is_postponed_import_vat") and not doc.get("is_import_of_goods"):
+		frappe.throw(
+			_("Postponed Import VAT can only be checked when Import of Goods is also checked."),
+			title=_("Invalid Postponed Import VAT"),
+		)

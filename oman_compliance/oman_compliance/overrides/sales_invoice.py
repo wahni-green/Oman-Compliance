@@ -16,6 +16,44 @@ def validate(doc, method=None):
 
 	set_vat_category_defaults(doc)
 	validate_vat_category_tax_consistency(doc)
+	set_export_flag(doc)
+
+
+def set_export_flag(doc, method=None):
+	"""VAT return box 3(a) exports vs box 1(b) domestic zero-rated — mirrors
+	purchase_invoice.set_import_of_goods_flag's shape, on the sales side. Shipping Address is the
+	better signal for "where does this actually go" than Customer Address alone (a domestic
+	customer can be billed at a foreign address for unrelated reasons), so it's checked first;
+	Customer Address is only the fallback for invoices with no distinct shipping address set."""
+	previous_value = bool(doc.get("is_export"))
+	new_value = _is_export(doc)
+
+	doc.is_export = new_value
+
+	if previous_value != new_value:
+		frappe.msgprint(
+			_("Export set to {0}, based on the Shipping/Customer Address's country.").format(
+				_("Yes") if new_value else _("No")
+			),
+			indicator="blue",
+			alert=True,
+		)
+
+
+def _is_export(doc) -> bool:
+	address = doc.get("shipping_address_name") or doc.get("customer_address")
+	if not address:
+		return False
+
+	address_country = frappe.db.get_value("Address", address, "country")
+	if not address_country:
+		return False
+
+	company_country = frappe.get_cached_value("Company", doc.company, "country")
+	if not company_country:
+		return False
+
+	return address_country != company_country
 
 
 def validate_vat_category_tax_consistency(doc):
