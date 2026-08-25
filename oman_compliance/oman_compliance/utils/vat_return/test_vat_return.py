@@ -166,6 +166,30 @@ class TestGetInvoiceRows(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			get_invoice_rows("Sales Invoice", self.company, self.test_date, self.test_date)
 
+	def test_duplicate_item_code_rows_with_same_category_but_different_template_are_rejected(self):
+		# VAT Category alone isn't a strong enough signal: two "Standard Rated" rows can use
+		# different Item Tax Templates configured with different rates, which a category-only
+		# ambiguity check would miss and then still misallocate VAT via the net-amount-proportional
+		# split. Same submission-time/legacy-data reasoning as the category-mismatch test above.
+		invoice = create_submitted_sales_invoice(
+			self.company,
+			vat_category="Standard Rated",
+			output_vat_account=self.output_account,
+			rate=5,
+			net_amount=100,
+			extra_item_net_amounts=[100],
+			posting_date=self.test_date,
+		)
+		frappe.db.set_value(
+			"Sales Invoice Item", invoice.items[0].name, "item_tax_template", "_Test Template A"
+		)
+		frappe.db.set_value(
+			"Sales Invoice Item", invoice.items[1].name, "item_tax_template", "_Test Template B"
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			get_invoice_rows("Sales Invoice", self.company, self.test_date, self.test_date)
+
 	def test_company_permission_is_enforced(self):
 		other_company = get_non_oman_test_company()
 

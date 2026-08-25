@@ -63,7 +63,7 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 
 	invoices_by_name = {invoice.name: invoice for invoice in invoices}
 
-	item_fields = ["parent", "item_code", "vat_category", "base_net_amount"]
+	item_fields = ["parent", "item_code", "vat_category", "item_tax_template", "base_net_amount"]
 	if doctype == "Purchase Invoice":
 		item_fields.append("is_fixed_asset")
 
@@ -102,42 +102,48 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 	# not either row's own share. Assigning the whole figure to every matching row would double (or
 	# N-times) count it once summed, so it's allocated across those rows by each row's share of the
 	# item_code's total base_net_amount instead — exact when there's only one row per item_code
-	# (the common case, share = 1), and still exact when every row shares the same VAT Category
-	# (same category implies the same rate, so the combined amount really is linear in net amount).
+	# (the common case, share = 1), and still exact when every row was actually taxed identically
+	# (the combined amount is then linear in net amount).
 	#
-	# It is NOT safe when rows sharing an item_code carry DIFFERENT VAT Categories: ERPNext's own
-	# taxes_and_totals.py overwrites the stored `rate` with whichever row it processed last while
-	# only the combined `amount` stays a true sum (confirmed by reading that source directly) — so
-	# there is no rate information left to recover each row's own share from once merged. A 5%
-	# Standard Rated row and an equal-value 0% Zero Rated row sharing an item_code would otherwise
-	# each get "half" the combined VAT, silently moving real money between box 1(a) and 1(b).
+	# It is NOT safe when rows sharing an item_code carry a different VAT Category OR a different
+	# Item Tax Template: ERPNext's own taxes_and_totals.py overwrites the stored `rate` with
+	# whichever row it processed last while only the combined `amount` stays a true sum (confirmed
+	# by reading that source directly) — so there is no rate information left to recover each row's
+	# own share from once merged. Category alone isn't a strong enough signal either: two rows can
+	# share a category yet use different templates configured with different rates, which a
+	# category-only check would miss. A 5% Standard Rated row and an equal-value 0% Zero Rated row
+	# sharing an item_code would otherwise each get "half" the combined VAT, silently moving real
+	# money between box 1(a) and 1(b) — and the same failure mode applies to two same-category rows
+	# on different-rate templates.
 	#
 	# overrides/sales_invoice.py::validate_no_mixed_vat_category_per_item_code() (and its Purchase
-	# Invoice counterpart) block this at submission time, so this should only ever be reached for an
-	# invoice that predates that check. Even then, this throws rather than silently excluding the
-	# affected rows: a VAT return that's quietly missing some transactions is a materially wrong
-	# filing that may go unnoticed, which is worse than failing loudly and forcing the preparer to
-	# fix the data (e.g. give each category its own Item Code) before generating anything for a
-	# period that includes it.
+	# Invoice counterpart) check both signals at submission time, so this should only ever be
+	# reached for an invoice that predates that check. Even then, this throws rather than silently
+	# excluding the affected rows: a VAT return that's quietly missing some transactions is a
+	# materially wrong filing that may go unnoticed, which is worse than failing loudly and forcing
+	# the preparer to fix the data (e.g. give each category/template combination its own Item Code)
+	# before generating anything for a period that includes it.
 	net_amount_by_parent_and_item: dict[tuple[str, str], float] = {}
-	categories_by_parent_and_item: dict[tuple[str, str], set] = {}
+	configs_by_parent_and_item: dict[tuple[str, str], set] = {}
 	for item in items:
 		key = (item.parent, item.item_code)
 		net_amount_by_parent_and_item[key] = net_amount_by_parent_and_item.get(key, 0) + (
 			item.base_net_amount or 0
 		)
-		categories_by_parent_and_item.setdefault(key, set()).add(item.vat_category)
+		configs_by_parent_and_item.setdefault(key, set()).add((item.vat_category, item.item_tax_template))
 
-	for (parent, item_code), categories in categories_by_parent_and_item.items():
-		if len(categories) > 1:
+	for (parent, item_code), configs in configs_by_parent_and_item.items():
+		if len(configs) > 1:
+			categories = sorted({category for category, _template in configs})
 			frappe.throw(
 				_(
-					"{0}: item {1} appears on more than one row with different VAT Categories ({2})."
-					" This app cannot reliably split that item's combined VAT amount across rows for a"
-					" VAT return (item_wise_tax_detail is only tracked per item code, not per row) —"
-					" resolve the mismatch on the invoice (e.g. use a distinct Item Code per category)"
-					" before generating a return for a period that includes it."
-				).format(parent, frappe.bold(item_code), ", ".join(sorted(categories))),
+					"{0}: item {1} appears on more than one row with inconsistent VAT treatment (VAT"
+					" Category and/or Item Tax Template differ: {2}). This app cannot reliably split"
+					" that item's combined VAT amount across rows for a VAT return (item_wise_tax_detail"
+					" is only tracked per item code, not per row) — resolve the mismatch on the invoice"
+					" (e.g. use a distinct Item Code per category/template combination) before generating"
+					" a return for a period that includes it."
+				).format(parent, frappe.bold(item_code), ", ".join(categories)),
 				title=_("Ambiguous VAT Category"),
 			)
 
