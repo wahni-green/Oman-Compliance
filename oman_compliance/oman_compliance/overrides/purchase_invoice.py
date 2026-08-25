@@ -123,7 +123,7 @@ def set_import_of_goods_flag(doc, method=None):
 	Always recomputed on save so a later edit to the Dispatch Address keeps it correct; the user
 	is notified whenever this changes the stored value, since the field itself is read-only."""
 	previous_value = bool(doc.get("is_import_of_goods"))
-	new_value = _is_import_of_goods(doc)
+	new_value = is_import_of_goods_candidate(doc)
 
 	doc.is_import_of_goods = new_value
 
@@ -137,7 +137,7 @@ def set_import_of_goods_flag(doc, method=None):
 		)
 
 
-def _is_import_of_goods(doc) -> bool:
+def is_import_of_goods_candidate(doc) -> bool:
 	dispatch_address = doc.get("dispatch_address")
 	if not dispatch_address:
 		return False
@@ -160,7 +160,7 @@ def set_gcc_supplier_flag(doc, method=None):
 	the Dispatch Address. Always recomputed on save, same as Import of Goods, since only its *use*
 	in a box total is conditional on Reverse Charge Applicable, not whether it stays current."""
 	previous_value = bool(doc.get("is_gcc_supplier"))
-	new_value = _is_gcc_supplier(doc)
+	new_value = is_gcc_supplier_candidate(doc)
 
 	doc.is_gcc_supplier = new_value
 
@@ -174,7 +174,7 @@ def set_gcc_supplier_flag(doc, method=None):
 		)
 
 
-def _is_gcc_supplier(doc) -> bool:
+def is_gcc_supplier_candidate(doc) -> bool:
 	supplier_address = doc.get("supplier_address")
 	if not supplier_address:
 		return False

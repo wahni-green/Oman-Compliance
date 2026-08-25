@@ -26,7 +26,7 @@ def set_export_flag(doc, method=None):
 	customer can be billed at a foreign address for unrelated reasons), so it's checked first;
 	Customer Address is only the fallback for invoices with no distinct shipping address set."""
 	previous_value = bool(doc.get("is_export"))
-	new_value = _is_export(doc)
+	new_value = is_export_candidate(doc)
 
 	doc.is_export = new_value
 
@@ -40,7 +40,7 @@ def set_export_flag(doc, method=None):
 		)
 
 
-def _is_export(doc) -> bool:
+def is_export_candidate(doc) -> bool:
 	address = doc.get("shipping_address_name") or doc.get("customer_address")
 	if not address:
 		return False
