@@ -1,0 +1,39 @@
+<style>
+	{% include "oman_compliance/oman_compliance/print_format/oman_tax_invoice/oman_tax_invoice.css" %}
+</style>
+{% import "oman_compliance/oman_compliance/print_format/_shared/tax_invoice_macros.html" as tax_invoice %}
+
+{#
+	Auto-selects between the full and simplified layouts based on `is_simplified_tax_invoice`
+	(overrides/sales_invoice.py::set_simplified_tax_invoice_flag) — the OMR 500 / non-taxable-
+	customer threshold-switch findings §54 called for. A user who wants the simplified layout
+	regardless of this flag can print the standalone "Oman Simplified Tax Invoice" format instead.
+#}
+<div class="oman-tax-invoice">
+	<div class="invoice-heading">
+		{% if doc.is_simplified_tax_invoice %}
+			<h1>{{ _("Simplified Tax Invoice") }}</h1>
+			<h2 lang="ar">فاتورة ضريبية مبسطة</h2>
+		{% else %}
+			<h1>{{ _("Tax Invoice") }}</h1>
+			<h2 lang="ar">فاتورة ضريبية</h2>
+		{% endif %}
+		<div class="invoice-meta">
+			<div>{{ _("Invoice No") }}: {{ doc.name }}</div>
+			<div>{{ _("Date") }}: {{ doc.get_formatted("posting_date") }}</div>
+		</div>
+	</div>
+
+	<div class="parties">
+		{{ tax_invoice.render_supplier_block(doc) }}
+		{# A Simplified Tax Invoice is for a non-taxable/B2C consumer — customer identity isn't a
+		   mandatory field on it the way it is on a full Tax Invoice. #}
+		{% if not doc.is_simplified_tax_invoice %}
+			{{ tax_invoice.render_customer_block(doc) }}
+		{% endif %}
+	</div>
+
+	{{ tax_invoice.render_item_rows(doc) }}
+	{{ tax_invoice.render_totals(doc) }}
+	{{ tax_invoice.render_qr_code(doc) }}
+</div>

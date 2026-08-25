@@ -175,5 +175,20 @@ CUSTOM_FIELDS = {
 			" 1(b)). Only meaningful when VAT Category is Zero Rated.",
 			"module": MODULE,
 		},
+		{
+			"fieldname": "is_simplified_tax_invoice",
+			"label": "Simplified Tax Invoice",
+			"fieldtype": "Check",
+			"insert_after": "is_export",
+			"read_only": 1,
+			"translatable": 0,
+			"description": "Automatically set when the Net Total is below Oman VAT Settings'"
+			" Simplified Tax Invoice Threshold (OMR 500 by default) and the Customer has no TRN"
+			" (i.e. a non-taxable/B2C consumer) — drives which layout the Oman Tax Invoice print"
+			" format auto-selects. A suggested default only: OTA permits, but doesn't require, a"
+			" Simplified Tax Invoice for such a supply, so a user can still manually pick either"
+			" print format regardless of this flag's value.",
+			"module": MODULE,
+		},
 	],
 }

@@ -2,6 +2,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from oman_compliance.oman_compliance.constants import NO_TAX_VAT_CATEGORIES
 from oman_compliance.oman_compliance.overrides.transaction import set_vat_category_defaults
@@ -18,6 +19,7 @@ def validate(doc, method=None):
 	validate_vat_category_tax_consistency(doc)
 	validate_no_mixed_vat_category_per_item_code(doc)
 	set_export_flag(doc)
+	set_simplified_tax_invoice_flag(doc)
 
 
 def set_export_flag(doc, method=None):
@@ -55,6 +57,45 @@ def is_export_candidate(doc) -> bool:
 		return False
 
 	return address_country != company_country
+
+
+def set_simplified_tax_invoice_flag(doc, method=None):
+	"""Drives the Oman Tax Invoice print format's auto-selection between its full and simplified
+	layouts (Phase 4, findings §54: the legacy app's Simplified Tax Invoice print format existed but
+	nothing auto-selected it). Mirrors set_export_flag's shape: always recomputed on save, since a
+	later edit (discount, extra line, customer swap) can flip which layout is appropriate."""
+	previous_value = bool(doc.get("is_simplified_tax_invoice"))
+	new_value = is_simplified_tax_invoice_candidate(doc)
+
+	doc.is_simplified_tax_invoice = new_value
+
+	if previous_value != new_value:
+		frappe.msgprint(
+			_("Simplified Tax Invoice set to {0}, based on the Net Total and Customer TRN.").format(
+				_("Yes") if new_value else _("No")
+			),
+			indicator="blue",
+			alert=True,
+		)
+
+
+def is_simplified_tax_invoice_candidate(doc) -> bool:
+	"""OTA permits (doesn't require) a Simplified Tax Invoice under OMR 500 excl. VAT for supplies
+	to non-taxable consumers — "non-taxable" here means the Customer has no TRN on file (not VAT-
+	registered), the same signal this app already uses everywhere else a taxable/non-taxable
+	distinction matters, rather than introducing a second, separate "is this customer taxable"
+	field. The threshold itself is read from Oman VAT Settings, not hardcoded, so a change there
+	takes effect without a code change. Compares against base_net_total (company currency, excl.
+	VAT), matching the threshold field's own "Grand total (excl. VAT)" description exactly."""
+	threshold = frappe.get_cached_doc("Oman VAT Settings").simplified_tax_invoice_threshold
+	if not threshold or flt(doc.get("base_net_total")) >= flt(threshold):
+		return False
+
+	customer = doc.get("customer")
+	if not customer:
+		return False
+
+	return not frappe.db.get_value("Customer", customer, "oman_trn")
 
 
 def validate_vat_category_tax_consistency(doc):
