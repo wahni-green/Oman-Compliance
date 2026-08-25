@@ -111,9 +111,14 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 	# there is no rate information left to recover each row's own share from once merged. A 5%
 	# Standard Rated row and an equal-value 0% Zero Rated row sharing an item_code would otherwise
 	# each get "half" the combined VAT, silently moving real money between box 1(a) and 1(b).
-	# Guessing a plausible-looking wrong number into an actual government filing is worse than
-	# refusing outright, so this is treated as a data problem for the preparer to fix on the
-	# invoice (e.g. give each category its own Item Code), not something to silently approximate.
+	#
+	# overrides/sales_invoice.py::validate_no_mixed_vat_category_per_item_code() (and its Purchase
+	# Invoice counterpart) block this at submission time, so this should only ever be reached for an
+	# invoice that predates that check. Even then, this throws rather than silently excluding the
+	# affected rows: a VAT return that's quietly missing some transactions is a materially wrong
+	# filing that may go unnoticed, which is worse than failing loudly and forcing the preparer to
+	# fix the data (e.g. give each category its own Item Code) before generating anything for a
+	# period that includes it.
 	net_amount_by_parent_and_item: dict[tuple[str, str], float] = {}
 	categories_by_parent_and_item: dict[tuple[str, str], set] = {}
 	for item in items:

@@ -145,18 +145,23 @@ class TestGetInvoiceRows(FrappeTestCase):
 		# code, not each row's own share, once they carry different VAT Categories (confirmed
 		# against ERPNext's own taxes_and_totals.py — the stored `rate` is just whichever row was
 		# processed last, not an average). Proportionally splitting by net amount alone would
-		# silently misattribute real VAT between return boxes, so this must be refused outright
-		# rather than guessed at.
-		create_submitted_sales_invoice(
+		# silently misattribute real VAT between return boxes.
+		#
+		# Submission-time validation (overrides/sales_invoice.py::
+		# validate_no_mixed_vat_category_per_item_code) blocks a *new* invoice from ever reaching
+		# this state, so this test has to force it in afterward — via db_set, bypassing controller
+		# validation entirely — to simulate an invoice that predates that check. Even then, a
+		# silently incomplete return is worse than one that refuses to generate at all.
+		invoice = create_submitted_sales_invoice(
 			self.company,
 			vat_category="Standard Rated",
 			output_vat_account=self.output_account,
 			rate=5,
 			net_amount=100,
 			extra_item_net_amounts=[100],
-			extra_item_vat_category="Zero Rated",
 			posting_date=self.test_date,
 		)
+		frappe.db.set_value("Sales Invoice Item", invoice.items[1].name, "vat_category", "Zero Rated")
 
 		with self.assertRaises(frappe.ValidationError):
 			get_invoice_rows("Sales Invoice", self.company, self.test_date, self.test_date)
