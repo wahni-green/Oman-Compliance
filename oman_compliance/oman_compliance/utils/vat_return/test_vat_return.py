@@ -140,6 +140,27 @@ class TestGetInvoiceRows(FrappeTestCase):
 		self.assertEqual(by_net_amount[100], 5)
 		self.assertEqual(by_net_amount[300], 15)
 
+	def test_duplicate_item_code_rows_with_different_vat_categories_are_rejected(self):
+		# item_wise_tax_detail only preserves the combined VAT amount across rows sharing an item
+		# code, not each row's own share, once they carry different VAT Categories (confirmed
+		# against ERPNext's own taxes_and_totals.py — the stored `rate` is just whichever row was
+		# processed last, not an average). Proportionally splitting by net amount alone would
+		# silently misattribute real VAT between return boxes, so this must be refused outright
+		# rather than guessed at.
+		create_submitted_sales_invoice(
+			self.company,
+			vat_category="Standard Rated",
+			output_vat_account=self.output_account,
+			rate=5,
+			net_amount=100,
+			extra_item_net_amounts=[100],
+			extra_item_vat_category="Zero Rated",
+			posting_date=self.test_date,
+		)
+
+		with self.assertRaises(frappe.ValidationError):
+			get_invoice_rows("Sales Invoice", self.company, self.test_date, self.test_date)
+
 	def test_company_permission_is_enforced(self):
 		other_company = get_non_oman_test_company()
 

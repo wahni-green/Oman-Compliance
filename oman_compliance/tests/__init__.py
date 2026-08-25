@@ -393,6 +393,7 @@ def create_submitted_sales_invoice(
 	return_against: str | None = None,
 	posting_date: str | None = None,
 	extra_item_net_amounts: list[float] | None = None,
+	extra_item_vat_category: str | None = None,
 ):
 	"""Builds and submits a real, minimal Sales Invoice for `company` — one non-stock item row
 	carrying `vat_category`, an optional Output VAT tax row, and — if `shipping_country`/
@@ -408,7 +409,9 @@ def create_submitted_sales_invoice(
 
 	`extra_item_net_amounts` adds further rows sharing the *same* item_code as the main row (net
 	amount `net_amount`) — for testing get_invoice_rows()'s handling of `item_wise_tax_detail`,
-	which is keyed by item_code, not row."""
+	which is keyed by item_code, not row. Those extra rows carry `vat_category` too, unless
+	`extra_item_vat_category` overrides it — for testing the mixed-category case get_invoice_rows()
+	must refuse to guess at, rather than silently misattribute VAT between boxes."""
 	item_code = get_or_create_test_item()
 	# A return must share its original invoice's own customer (ERPNext's own
 	# validate_return_against enforces this) — a fresh customer per call is right for an
@@ -446,11 +449,17 @@ def create_submitted_sales_invoice(
 					"item_name": item_code,
 					"qty": sign,
 					"rate": amount,
-					"vat_category": vat_category,
+					"vat_category": category,
 					"income_account": frappe.get_cached_value("Company", company, "default_income_account"),
 					"cost_center": frappe.get_cached_value("Company", company, "cost_center"),
 				}
-				for amount in (net_amount, *(extra_item_net_amounts or []))
+				for amount, category in (
+					(net_amount, vat_category),
+					*(
+						(extra_amount, extra_item_vat_category or vat_category)
+						for extra_amount in extra_item_net_amounts or []
+					),
+				)
 			],
 			"taxes": (
 				[

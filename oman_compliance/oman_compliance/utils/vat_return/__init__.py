@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 
 from oman_compliance.oman_compliance.utils.tax_account import (
 	get_item_wise_vat_amounts,
@@ -101,13 +102,39 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 	# not either row's own share. Assigning the whole figure to every matching row would double (or
 	# N-times) count it once summed, so it's allocated across those rows by each row's share of the
 	# item_code's total base_net_amount instead — exact when there's only one row per item_code
-	# (the common case, share = 1), proportional otherwise.
+	# (the common case, share = 1), and still exact when every row shares the same VAT Category
+	# (same category implies the same rate, so the combined amount really is linear in net amount).
+	#
+	# It is NOT safe when rows sharing an item_code carry DIFFERENT VAT Categories: ERPNext's own
+	# taxes_and_totals.py overwrites the stored `rate` with whichever row it processed last while
+	# only the combined `amount` stays a true sum (confirmed by reading that source directly) — so
+	# there is no rate information left to recover each row's own share from once merged. A 5%
+	# Standard Rated row and an equal-value 0% Zero Rated row sharing an item_code would otherwise
+	# each get "half" the combined VAT, silently moving real money between box 1(a) and 1(b).
+	# Guessing a plausible-looking wrong number into an actual government filing is worse than
+	# refusing outright, so this is treated as a data problem for the preparer to fix on the
+	# invoice (e.g. give each category its own Item Code), not something to silently approximate.
 	net_amount_by_parent_and_item: dict[tuple[str, str], float] = {}
+	categories_by_parent_and_item: dict[tuple[str, str], set] = {}
 	for item in items:
 		key = (item.parent, item.item_code)
 		net_amount_by_parent_and_item[key] = net_amount_by_parent_and_item.get(key, 0) + (
 			item.base_net_amount or 0
 		)
+		categories_by_parent_and_item.setdefault(key, set()).add(item.vat_category)
+
+	for (parent, item_code), categories in categories_by_parent_and_item.items():
+		if len(categories) > 1:
+			frappe.throw(
+				_(
+					"{0}: item {1} appears on more than one row with different VAT Categories ({2})."
+					" This app cannot reliably split that item's combined VAT amount across rows for a"
+					" VAT return (item_wise_tax_detail is only tracked per item code, not per row) —"
+					" resolve the mismatch on the invoice (e.g. use a distinct Item Code per category)"
+					" before generating a return for a period that includes it."
+				).format(parent, frappe.bold(item_code), ", ".join(sorted(categories))),
+				title=_("Ambiguous VAT Category"),
+			)
 
 	rows = []
 	for item in items:
