@@ -86,9 +86,11 @@ def is_simplified_tax_invoice_candidate(doc) -> bool:
 	distinction matters, rather than introducing a second, separate "is this customer taxable"
 	field. The threshold itself is read from Oman VAT Settings, not hardcoded, so a change there
 	takes effect without a code change. Compares against base_net_total (company currency, excl.
-	VAT), matching the threshold field's own "Grand total (excl. VAT)" description exactly."""
+	VAT), matching the threshold field's own "Grand total (excl. VAT)" description exactly. Uses
+	the absolute value: a Sales Return/credit note has a negative base_net_total, and comparing the
+	raw signed figure would let a large-value return through this check regardless of magnitude."""
 	threshold = frappe.get_cached_doc("Oman VAT Settings").simplified_tax_invoice_threshold
-	if not threshold or flt(doc.get("base_net_total")) >= flt(threshold):
+	if not threshold or abs(flt(doc.get("base_net_total"))) >= flt(threshold):
 		return False
 
 	customer = doc.get("customer")

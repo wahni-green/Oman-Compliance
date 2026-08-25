@@ -29,5 +29,9 @@ def get_tax_invoice_qr_code(doc) -> str | None:
 		]
 	)
 
-	qr_code = pyqrcode.create(payload)
+	# encoding="utf-8" is required, not optional: pyqrcode's mode auto-detection falls back to
+	# Latin-1 for a non-numeric/non-alphanumeric payload, and a Company name containing Arabic
+	# text (a real possibility in Oman, not just company_name_in_arabic) raises UnicodeEncodeError
+	# without it — confirmed by direct reproduction, not a theoretical concern.
+	qr_code = pyqrcode.create(payload, encoding="utf-8")
 	return "data:image/png;base64," + qr_code.png_as_base64_str(scale=4)

@@ -230,6 +230,35 @@ class TestSetSimplifiedTaxInvoiceFlag(FrappeTestCase):
 
 		self.assertFalse(doc.is_simplified_tax_invoice)
 
+	def test_large_return_is_not_simplified_despite_negative_net_total(self):
+		# A Sales Return/credit note carries a negative base_net_total. The raw signed value would
+		# never be >= a positive threshold, so a large-value return could otherwise bypass this
+		# check entirely regardless of magnitude — must compare on the absolute value instead.
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=-1000,
+			is_return=1,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
+	def test_small_return_is_still_simplified(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=-100,
+			is_return=1,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertTrue(doc.is_simplified_tax_invoice)
+
 	def test_threshold_is_read_from_settings_not_hardcoded(self):
 		set_simplified_tax_invoice_threshold(50)
 		doc = frappe._dict(

@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -23,6 +25,24 @@ class TestGetTaxInvoiceQrCode(FrappeTestCase):
 
 		self.assertIsNotNone(qr_code)
 		self.assertTrue(qr_code.startswith("data:image/png;base64,"))
+
+	def test_does_not_crash_on_a_non_latin_company_name(self):
+		# pyqrcode's mode auto-detection falls back to Latin-1 for a non-numeric/non-alphanumeric
+		# payload and raises UnicodeEncodeError on Arabic text without an explicit encoding= — a
+		# real risk here, not a theoretical one, since a Company's own name (not just its separate
+		# company_name_in_arabic field) can be entered in Arabic in Oman.
+		with patch("frappe.get_cached_value", return_value="OM1234567890"):
+			doc = frappe._dict(
+				company="شركة عمان",
+				name="_Test SINV-0004",
+				grand_total=0,
+				total_taxes_and_charges=0,
+				currency="OMR",
+			)
+
+			qr_code = get_tax_invoice_qr_code(doc)
+
+		self.assertIsNotNone(qr_code)
 
 	def test_returns_none_when_company_has_no_trn(self):
 		company = get_oman_test_company()
