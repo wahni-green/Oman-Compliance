@@ -213,14 +213,16 @@ the legacy `oman_vat` app's report at `apps/oman_vat/oman_vat/oman_vat/report/om
   deciding deliberately in Phase 3 rather than defaulting to whichever ERPNext's `is_return` sign convention
   makes easiest.
 
-- [ ] `utils/vat_return/sections/` — one file per return box: `domestic_supplies.py`,
-      `reverse_charge_purchases.py`, `supplies_outside_oman.py`, `imports_of_goods.py`, `input_vat_credit.py`,
-      plus totals (`total_vat_due`, `net_tax_liability`)
-- [ ] `Oman VAT Return` doctype — persisted per-period return record (status: Draft/Filed), built from the
+- [x] `utils/vat_return/sections/` — one file per return box: `domestic_supplies.py`,
+      `reverse_charge_purchases.py`, `exports.py` (renamed from this bullet's original
+      `supplies_outside_oman.py` — the 2026-08-23 alignment note found that name described the wrong
+      concept), `imports_of_goods.py`, `input_vat_credit.py`, plus `totals.py` (`get_total_vat_due`,
+      `get_input_vat_credit_total`, `get_net_tax_liability`)
+- [x] `Oman VAT Return` doctype — persisted per-period return record (status: Draft/Filed), built from the
       section functions above — replaces the legacy two-section ledger entirely (findings §50)
-- [ ] `Oman VAT Sales/Purchase Register` Script Report — ad-hoc analytical report, thin `.py` calling the same
+- [x] `Oman VAT Sales/Purchase Register` Script Report — ad-hoc analytical report, thin `.py` calling the same
       section functions, `execute(filters) → validate_filters, get_columns, get_data` shape
-- [ ] Tests: section-by-section unit tests with known invoice fixtures, cross-checked against manually
+- [x] Tests: section-by-section unit tests with known invoice fixtures, cross-checked against manually
       computed 7-box totals
 
 ---
@@ -629,3 +631,85 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
      account, so the rest keep running regardless of what accounts happen to exist on a given bench.
   `bench run-tests --app oman_compliance` (91/91 passing, same count — no tests added or removed, only
   re-scoped) confirmed; no schema change.
+- 2026-08-25 — Phase 3 complete: VAT Return & reports. At the user's explicit direction, built the
+  missing classification signals as real fields/logic rather than a simplified return, and kept
+  credit/debit notes as a separate adjustment column per box rather than netting them into the main
+  figures (matching the legacy app's auditability approach) — both were open decisions flagged in
+  the 2026-08-23 alignment note above.
+  - **New signals** (`constants/custom_fields.py`): Sales Invoice `is_export` (read-only, computed
+    from Shipping Address country, falling back to Customer Address — box 3(a) vs 1(b) split, see
+    `overrides/sales_invoice.py::set_export_flag`); Purchase Invoice `is_gcc_supplier` (read-only,
+    computed from Supplier Address country against a new `GCC_COUNTRIES` constant — box 2(a) vs
+    2(b) split, `overrides/purchase_invoice.py::set_gcc_supplier_flag`, deliberately reads Supplier
+    Address rather than Dispatch Address since GCC classification is about who the supplier is, not
+    where goods physically ship from); Purchase Invoice `is_postponed_import_vat` (manual, not
+    computed — a customs election ERPNext has no data for — box 4(a) vs 4(b) split, validated to
+    require `is_import_of_goods` also be set). All three installed via the existing
+    `create_custom_fields()` `post_model_sync` patch line in `patches.txt`, whose version marker
+    was bumped `#7` → `#8` so `bench migrate` alone re-installs them on an already-installed site —
+    confirmed this actually matters: `bench migrate` alone did *not* pick up the three new fields
+    until the marker was bumped, since `after_install` (which also calls `create_custom_fields()`)
+    only runs once, at install time.
+  - **`utils/vat_return/`**: one-file-per-box section functions (`sections/domestic_supplies.py`,
+    `exports.py`, `reverse_charge_purchases.py`, `imports_of_goods.py`, `input_vat_credit.py`) over
+    an India-Compliance-style aggregator-class layer — Oman's 7-box return is far simpler than
+    GSTR-3B's many sub-categories, so a class layer would have been ceremony. A shared
+    `get_invoice_rows()` fetch (Out of Scope excluded at the query level, so no section can forget
+    to) and `summarize_box()` (splits `is_return=1` rows into separate `adjustment_*` columns) live
+    in `utils/vat_return/__init__.py`; `utils/tax_account.py` gained a sibling
+    `get_item_wise_vat_amounts()` (reads the tax *amount* from `item_wise_tax_detail`, vs.
+    `overrides/sales_invoice.py`'s existing rate-reading helper) so every section shares one parse
+    of that currency-sensitive JSON field. `input_vat_credit.py`'s four sub-buckets
+    (ordinary/imports/fixed_assets/adjustments) are built mutually exclusive by explicit priority
+    (fixed asset first, then import, then ordinary) rather than reusing `imports_of_goods.py`'s own
+    total, specifically to avoid double-counting a row that's both an import and a fixed asset.
+    `totals.py`'s box 5/7 math nets each box's `adjustment_vat_amount` *out* of the total (a credit
+    note really does reduce what's owed) even though the per-box detail table keeps the two figures
+    in separate columns — display and real-liability math are deliberately different concerns here.
+  - **`Oman VAT Return` doctype** (+ child table `Oman VAT Return Detail`): plain `Document`
+    subclass, `company`/`from_date`/`to_date`/`period_type`/`status` (Draft/Filed) fields, a `boxes`
+    child table (one row per box, `box_code`/`description`/`taxable_amount`/`vat_amount`/
+    `adjustment_taxable_amount`/`adjustment_vat_amount`) over ~20 flat fields, and a whitelisted
+    `generate_return()` that calls the five section functions, replaces `boxes` wholesale (safe to
+    re-run while Draft), and computes the three totals. Boxes 1(d)/1(e)/1(f) (intra-GCC supplies,
+    not OTA-activated; profit-margin scheme, no signal exists) and box 2(a) (intra-GCC purchases,
+    computed but not-yet-activated) still appear as rows — zero-valued where unbuilt, with a
+    description noting why — so the return's shape always mirrors the official 7-box form rather
+    than silently dropping rows.
+  - **Reports**: two separate Script Reports, "Oman VAT Sales Register" and "Oman VAT Purchase
+    Register" (not one filter-driven report, and not the invoice-level detail the plan doc
+    originally envisioned) — each side's column set diverges enough (domestic/export/exempt vs.
+    GCC/non-GCC/postponed/fixed-asset) that one report would need a register-type branch changing
+    its entire column list. Both are box-level summaries: thin `execute()` wrappers over the exact
+    same section functions the doctype uses, never re-deriving a figure. Scoped down from
+    invoice-level drill-down for this phase, since the section functions currently return summed
+    totals, not per-invoice rows — noted as a natural follow-up, not a gap in what shipped.
+  - **Tests**: 66 new tests (91 → 159), colocated per this app's convention. Unlike Phase 1/2's
+    `frappe._dict` mocks, section-function tests build and submit *real* Sales/Purchase Invoices
+    (`oman_compliance/tests/__init__.py` gained `create_submitted_sales_invoice()`/
+    `create_submitted_purchase_invoice()` and supporting fixture helpers) since the thing under test
+    is genuinely-computed `base_net_amount`/`item_wise_tax_detail` reads, which a mock can't
+    exercise. Two things had to be solved to make that fixture reliable:
+    1. This shared dev bench has schema drift unrelated to Oman Compliance — ERPNext's own
+       `accounts/party.py` queries `Contact.is_billing_contact`/`Address.tax_category` (columns
+       this bench's install never got, an environment gap, not a version-compatible-but-unused
+       feature), and the unrelated `galfar` app's hooks read `Customer.is_walkin`/
+       `Supplier.cr_number`/`Asset Category.abbr` custom fields that likewise were never installed
+       here. Every real invoice submission hits at least one of these. Rather than patching shared
+       Contact/Customer/Address state on a bench other apps depend on, these are stubbed out
+       locally inside `tests/__init__.py`'s own fixture helpers (`_without_broken_third_party_hooks()`
+       context manager, plus explicit `cr_number`/`abbr` values on the docs this app's own fixtures
+       create) — scoped to building this app's own test data, not a global fix.
+    2. `frappe.tests.utils.FrappeTestCase` only rolls back once per test *class*
+       (`addClassCleanup`), not after each test method — a real bug class this app hadn't hit before
+       (Phase 1/2's mock-based tests never touched the DB). A shared, reused Customer/Supplier
+       fixture accumulated linked Addresses across sibling test methods, and ERPNext's own
+       `get_party_details()` auto-filled a blank shipping/customer address from whatever was
+       already linked — silently breaking a later "no address" test. Fixed by making
+       `get_or_create_test_customer()`/`get_or_create_test_supplier()` create a fresh record every
+       call (no longer idempotent-by-name, unlike this file's other fixture helpers) and by adding
+       `get_unique_test_date()` so sibling test methods' invoices never share a query-window date
+       either.
+  - `bench migrate` (3 new custom fields via the bumped patch marker, 2 new doctypes, 2 new Script
+    Reports, all idempotent) and `bench run-tests --app oman_compliance` (159/159 passing) confirmed.
+    `ruff check`/`ruff format` clean on every new/changed file.
