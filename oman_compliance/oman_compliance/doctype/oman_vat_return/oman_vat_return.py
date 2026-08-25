@@ -51,18 +51,15 @@ class OmanVATReturn(Document):
 			frappe.throw(_("A Filed return cannot be deleted."), title=_("Return Already Filed"))
 
 	def _get_locked_persisted_status(self) -> str | None:
-		"""A plain `frappe.db.get_value()` read here would still leave a race: one request could
-		read "Draft" a moment before a second, concurrent request files the return and commits, and
-		the first request's save/delete — already past its own check — would still go through once
-		its transaction commits. `SELECT ... FOR UPDATE` instead takes a row lock on this document
-		for the rest of the *current* transaction, so a second concurrent save/delete blocks here
-		until the first one commits, then reads the up-to-date status rather than racing past a
-		stale one — validate()/on_trash() both run inside the same transaction as the mutation
-		they're guarding, so the lock actually covers the write, not just the read."""
-		row = frappe.db.sql(
-			f"select status from `tab{self.doctype}` where name = %s for update", (self.name,)
-		)
-		return row[0][0] if row else None
+		"""A plain `frappe.db.get_value()` read (the default `for_update=False`) would still leave
+		a race: one request could read "Draft" a moment before a second, concurrent request files
+		the return and commits, and the first request's save/delete — already past its own check —
+		would still go through once its transaction commits. `for_update=True` instead takes a row
+		lock on this document for the rest of the *current* transaction, so a second concurrent
+		save/delete blocks here until the first one commits, then reads the up-to-date status rather
+		than racing past a stale one — validate()/on_trash() both run inside the same transaction as
+		the mutation they're guarding, so the lock actually covers the write, not just the read."""
+		return frappe.db.get_value(self.doctype, self.name, "status", for_update=True)
 
 	@frappe.whitelist()
 	def generate_return(self):
