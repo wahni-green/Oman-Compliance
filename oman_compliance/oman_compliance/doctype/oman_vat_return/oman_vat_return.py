@@ -43,7 +43,11 @@ class OmanVATReturn(Document):
 			frappe.throw(_("A Filed return cannot be modified."), title=_("Return Already Filed"))
 
 	def on_trash(self):
-		if self.status == "Filed":
+		# Reads the persisted status fresh rather than trusting self.status: a doc instance loaded
+		# before another request filed this same return would otherwise still say "Draft" in
+		# memory and sail through this check, deleting a return that's actually Filed in the
+		# database. Same reasoning as validate_filed_is_immutable() above.
+		if frappe.db.get_value(self.doctype, self.name, "status") == "Filed":
 			frappe.throw(_("A Filed return cannot be deleted."), title=_("Return Already Filed"))
 
 	@frappe.whitelist()

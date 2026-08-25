@@ -180,3 +180,17 @@ class TestOmanVATReturn(FrappeTestCase):
 		self._generate_with()
 
 		self.doc.delete()  # should not raise
+
+	def test_deleting_via_a_stale_draft_instance_of_a_now_filed_return_is_rejected(self):
+		# on_trash() must read the persisted status, not self.status: a doc instance loaded before
+		# another request filed this same return would otherwise still say "Draft" in memory and
+		# sail through the check, deleting a return that's actually Filed in the database.
+		self._generate_with()
+		stale_doc = frappe.get_doc("Oman VAT Return", self.doc.name)
+		self.assertEqual(stale_doc.status, "Draft")
+
+		self.doc.status = "Filed"
+		self.doc.save()
+
+		with self.assertRaises(frappe.ValidationError):
+			stale_doc.delete()
