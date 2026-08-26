@@ -5,6 +5,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from oman_compliance.oman_compliance.overrides.sales_invoice import (
 	set_export_flag,
+	set_simplified_tax_invoice_flag,
 	validate,
 	validate_no_mixed_vat_category_per_item_code,
 	validate_vat_category_tax_consistency,
@@ -12,7 +13,9 @@ from oman_compliance.oman_compliance.overrides.sales_invoice import (
 from oman_compliance.tests import (
 	get_non_oman_test_company,
 	get_oman_test_company,
+	get_or_create_test_customer,
 	get_test_tax_account,
+	set_simplified_tax_invoice_threshold,
 	set_vat_accounts,
 )
 
@@ -169,6 +172,151 @@ class TestSetExportFlag(FrappeTestCase):
 		set_export_flag(doc)
 
 		self.assertFalse(doc.is_export)
+		self.assertFalse(frappe.get_message_log())
+
+
+class TestSetSimplifiedTaxInvoiceFlag(FrappeTestCase):
+	def setUp(self):
+		self.oman_company = get_oman_test_company()
+		set_simplified_tax_invoice_threshold(500)
+		self.non_taxable_customer = get_or_create_test_customer(self.oman_company)
+		self.taxable_customer = get_or_create_test_customer(self.oman_company)
+		frappe.db.set_value("Customer", self.taxable_customer, "oman_trn", "OM1234567890")
+
+	def test_below_threshold_and_non_taxable_customer_is_simplified(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=100,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertTrue(doc.is_simplified_tax_invoice)
+
+	def test_below_threshold_but_taxable_customer_is_not_simplified(self):
+		# A registered (TRN-bearing) customer is a B2B supply, not the non-taxable-consumer case
+		# OTA's Simplified Tax Invoice allowance is for, regardless of amount.
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.taxable_customer,
+			base_net_total=100,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
+	def test_at_or_above_threshold_is_not_simplified(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=500,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
+	def test_blank_customer_is_not_simplified(self):
+		doc = frappe._dict(
+			company=self.oman_company, customer=None, base_net_total=100, is_simplified_tax_invoice=0
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
+	def test_company_currency_mismatched_with_settings_currency_is_not_simplified(self):
+		# Oman VAT Settings' threshold is always OMR (settings_currency); comparing base_net_total
+		# against it is only meaningful when the Company's own base currency is also OMR. A company
+		# on a different base currency has no confirmed conversion rate to apply here, so this must
+		# never guess by comparing mismatched currencies as if they were the same number.
+		frappe.db.set_value("Company", self.oman_company, "default_currency", "USD")
+		self.addCleanup(frappe.db.set_value, "Company", self.oman_company, "default_currency", "OMR")
+
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=100,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
+	def test_large_return_is_not_simplified_despite_negative_net_total(self):
+		# A Sales Return/credit note carries a negative base_net_total. The raw signed value would
+		# never be >= a positive threshold, so a large-value return could otherwise bypass this
+		# check entirely regardless of magnitude — must compare on the absolute value instead.
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=-1000,
+			is_return=1,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
+	def test_small_return_is_still_simplified(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=-100,
+			is_return=1,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertTrue(doc.is_simplified_tax_invoice)
+
+	def test_threshold_is_read_from_settings_not_hardcoded(self):
+		set_simplified_tax_invoice_threshold(50)
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=100,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
+	def test_changing_to_simplified_notifies_the_user(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=100,
+			is_simplified_tax_invoice=0,
+		)
+
+		frappe.message_log.clear()
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertTrue(doc.is_simplified_tax_invoice)
+		self.assertTrue(frappe.get_message_log())
+
+	def test_unchanged_value_does_not_notify(self):
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.taxable_customer,
+			base_net_total=100,
+			is_simplified_tax_invoice=0,
+		)
+
+		frappe.message_log.clear()
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
 		self.assertFalse(frappe.get_message_log())
 
 

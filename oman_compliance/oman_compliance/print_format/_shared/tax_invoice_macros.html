@@ -1,0 +1,134 @@
+{#
+	Shared Jinja macros for the Oman Tax Invoice / Oman Simplified Tax Invoice print formats.
+	Not a Print Format itself (no .json here) — just a plain template file, included via Jinja's
+	`{% import %}`, matching how India Compliance's e_invoice.html includes a sibling .css file the
+	same way (a path relative to the app root resolves through Frappe's app-wide Jinja loader).
+#}
+
+{#
+	The OTA requires a Tax Invoice to carry the supplier's address (both layouts) and, on the full
+	layout, the customer's address too — so a missing address isn't silently omitted the way it
+	was before (Greptile/CodeRabbit review on the PR that introduced these formats): it renders as
+	an unmissable warning instead, since a Jinja print format has no way to block the print action
+	itself the way a doc_event validate() hook would.
+#}
+{% macro render_supplier_block(doc) %}
+	{% set company_name_ar = frappe.db.get_value("Company", doc.company, "company_name_in_arabic") %}
+	{% set company_trn = frappe.db.get_value("Company", doc.company, "oman_trn") %}
+	<div class="party-block supplier-block">
+		<h3>{{ doc.company }}{% if company_name_ar %} / <span lang="ar">{{ company_name_ar }}</span>{% endif %}</h3>
+		{% if doc.company_address_display %}
+			<p>{{ doc.company_address_display }}</p>
+		{% else %}
+			<p class="missing-mandatory-field">{{ _("Supplier address missing — required on a Tax Invoice. Set a default address for this Company before issuing.") }}</p>
+		{% endif %}
+		{% if company_trn %}<p><b>{{ _("TRN") }}:</b> {{ company_trn }}</p>{% endif %}
+	</div>
+{% endmacro %}
+
+{% macro render_customer_block(doc) %}
+	{% set customer_name_ar = frappe.db.get_value("Customer", doc.customer, "customer_name_in_arabic") if doc.customer else None %}
+	{% set customer_trn = frappe.db.get_value("Customer", doc.customer, "oman_trn") if doc.customer else None %}
+	<div class="party-block customer-block">
+		<h4>{{ _("Bill To") }} / <span lang="ar">إلى</span></h4>
+		<p>{{ doc.customer_name }}{% if customer_name_ar %} / <span lang="ar">{{ customer_name_ar }}</span>{% endif %}</p>
+		{% if doc.address_display %}
+			<p>{{ doc.address_display }}</p>
+		{% else %}
+			<p class="missing-mandatory-field">{{ _("Customer address missing — required on a full Tax Invoice. Set a Customer/Shipping address on this invoice before issuing.") }}</p>
+		{% endif %}
+		{% if customer_trn %}<p><b>{{ _("TRN") }}:</b> {{ customer_trn }}</p>{% endif %}
+	</div>
+{% endmacro %}
+
+{% macro render_item_rows(doc) %}
+	{#
+		VAT Category alone (Standard Rated/Zero Rated/Exempt/Out of Scope) doesn't tell the reader
+		the actual percentage applied — the OTA requires the applied tax rate to be shown per line.
+		Computed once here (not per row) from the same item_wise_tax_detail this app's
+		VAT-category-mismatch check already reads, filtered to the company's configured Output VAT
+		Account so an unrelated charge's rate is never shown as if it were VAT.
+	#}
+	{% set vat_rates = get_item_wise_vat_rates(doc.taxes, doc.company) %}
+	<table class="items-table">
+		<thead>
+			<tr>
+				<th>{{ _("#") }}</th>
+				<th>{{ _("Item") }} / <span lang="ar">الصنف</span></th>
+				<th>{{ _("Qty") }}</th>
+				<th>{{ _("Rate") }}</th>
+				<th>{{ _("VAT Category") }} / <span lang="ar">فئة الضريبة</span></th>
+				<th>{{ _("VAT %") }}</th>
+				<th>{{ _("Amount") }}</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for item in doc.items %}
+			{% set vat_rate = vat_rates.get(item.item_code) %}
+			<tr>
+				<td>{{ item.idx }}</td>
+				<td>{{ item.item_name }}</td>
+				<td>{{ item.qty }}</td>
+				<td>{{ item.get_formatted("rate", doc) }}</td>
+				<td>{{ item.vat_category or "" }}</td>
+				<td>{% if vat_rate is not none %}{{ "%g" % vat_rate }}%{% endif %}</td>
+				<td>{{ item.get_formatted("amount", doc) }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+{% endmacro %}
+
+{% macro render_totals(doc) %}
+	<table class="totals-table">
+		<tr>
+			<td>{{ _("Net Total") }} / <span lang="ar">الإجمالي قبل الضريبة</span></td>
+			<td>{{ doc.get_formatted("net_total") }}</td>
+		</tr>
+		{#
+			Deliberately not doc.total_taxes_and_charges: that sums EVERY Taxes and Charges row
+			(freight, discount, withholding, ...), not just VAT, and would mislabel a mixed-charge
+			invoice's non-VAT charges as VAT. get_output_vat_amount() only sums rows posted to the
+			company's configured Output VAT Account, in document currency (matching how Net
+			Total/Grand Total are already shown here). It returns None, not 0, when the company has
+			no Output VAT Account configured — must render as an explicit warning here, since
+			silently printing "0.000" as VAT on a legal document is misleading if this invoice
+			actually charged VAT that just couldn't be identified (Greptile review).
+		#}
+		{% set output_vat_amount = get_output_vat_amount(doc) %}
+		<tr>
+			<td>{{ _("Total VAT") }} / <span lang="ar">إجمالي الضريبة</span></td>
+			<td>
+				{% if output_vat_amount is none %}
+					<span class="missing-mandatory-field">{{ _("Output VAT Account not configured for this Company in Oman VAT Settings") }}</span>
+				{% else %}
+					{{ frappe.utils.fmt_money(output_vat_amount, currency=doc.currency) }}
+				{% endif %}
+			</td>
+		</tr>
+		<tr class="grand-total-row">
+			<td>{{ _("Grand Total") }} / <span lang="ar">الإجمالي الكلي</span></td>
+			<td>{{ doc.get_formatted("grand_total") }}</td>
+		</tr>
+		{% if doc.in_words %}
+		<tr>
+			<td colspan="2">{{ _("In Words") }}: {{ doc.in_words }}</td>
+		</tr>
+		{% endif %}
+		{% set exchange_disclosure = get_exchange_rate_disclosure(doc) %}
+		{% if exchange_disclosure %}
+		<tr>
+			<td colspan="2">{{ exchange_disclosure }}</td>
+		</tr>
+		{% endif %}
+	</table>
+{% endmacro %}
+
+{% macro render_qr_code(doc) %}
+	{% set qr_code = get_tax_invoice_qr_code(doc) %}
+	{% if qr_code %}
+	<div class="qr-code">
+		<img src="{{ qr_code }}" alt="{{ _("QR Code") }}">
+	</div>
+	{% endif %}
+{% endmacro %}

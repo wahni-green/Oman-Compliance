@@ -1,0 +1,29 @@
+<style>
+	{% include "oman_compliance/oman_compliance/print_format/oman_tax_invoice/oman_tax_invoice.css" %}
+</style>
+{% import "oman_compliance/oman_compliance/print_format/_shared/tax_invoice_macros.html" as tax_invoice %}
+
+{#
+	Standalone simplified layout — always renders as a Simplified Tax Invoice regardless of
+	`is_simplified_tax_invoice`, for a user who deliberately wants this format every time (e.g. a
+	POS-style till that only ever issues simplified invoices) rather than the auto-selecting
+	"Oman Tax Invoice" format's threshold-switch behavior.
+#}
+<div class="oman-tax-invoice">
+	<div class="invoice-heading">
+		<h1>{{ _("Simplified Tax Invoice") }}</h1>
+		<h2 lang="ar">فاتورة ضريبية مبسطة</h2>
+		<div class="invoice-meta">
+			<div>{{ _("Invoice No") }}: {{ doc.name }}</div>
+			<div>{{ _("Date") }}: {{ doc.get_formatted("posting_date") }}</div>
+		</div>
+	</div>
+
+	<div class="parties">
+		{{ tax_invoice.render_supplier_block(doc) }}
+	</div>
+
+	{{ tax_invoice.render_item_rows(doc) }}
+	{{ tax_invoice.render_totals(doc) }}
+	{{ tax_invoice.render_qr_code(doc) }}
+</div>

@@ -190,6 +190,14 @@ def set_vat_accounts(
 	settings.save(ignore_permissions=True)
 
 
+def set_simplified_tax_invoice_threshold(amount: float) -> None:
+	"""Configure Oman VAT Settings' Simplified Tax Invoice Threshold for a test — relies on
+	FrappeTestCase's per-test rollback to undo it afterward, same as set_vat_accounts()."""
+	settings = frappe.get_single("Oman VAT Settings")
+	settings.simplified_tax_invoice_threshold = amount
+	settings.save(ignore_permissions=True)
+
+
 def get_oman_test_vat_accounts(company: str) -> tuple[str, str]:
 	"""Two dedicated leaf Account records for `company`, for use as its Output/Input VAT Account
 	when a test needs to build and submit a *real* Sales/Purchase Invoice — unlike

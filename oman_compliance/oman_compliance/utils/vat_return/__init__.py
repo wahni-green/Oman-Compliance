@@ -97,7 +97,7 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 	}
 
 	# item_wise_tax_detail is keyed by item_code, not row (the same limitation
-	# overrides/sales_invoice.py::_get_item_wise_tax_rates already documents) — when an invoice has
+	# utils/tax_account.py::get_item_wise_vat_rates already documents) — when an invoice has
 	# two rows sharing an item_code, that one JSON entry is the combined amount across BOTH rows,
 	# not either row's own share. Assigning the whole figure to every matching row would double (or
 	# N-times) count it once summed, so it's allocated across those rows by each row's share of the

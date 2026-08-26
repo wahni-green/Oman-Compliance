@@ -1,0 +1,87 @@
+/* Shared styling for this app's tax invoice print formats (full and simplified layouts). */
+
+.oman-tax-invoice {
+	font-size: 12px;
+}
+
+.oman-tax-invoice [lang="ar"] {
+	direction: rtl;
+	unicode-bidi: embed;
+	font-family: "Traditional Arabic", "Arial", sans-serif;
+}
+
+.invoice-heading {
+	text-align: center;
+	margin-bottom: 15px;
+}
+
+.invoice-heading h1,
+.invoice-heading h2 {
+	margin: 0;
+}
+
+.invoice-meta {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 8px;
+}
+
+.parties {
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 15px;
+}
+
+.party-block {
+	width: 48%;
+}
+
+.party-block p,
+.party-block h3,
+.party-block h4 {
+	margin: 2px 0;
+}
+
+.missing-mandatory-field {
+	color: #b00020;
+	font-weight: bold;
+	border: 1px solid #b00020;
+	padding: 2px 4px;
+}
+
+.items-table,
+.totals-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 10px;
+}
+
+.items-table th,
+.items-table td {
+	border: 1px solid #ccc;
+	padding: 4px 6px;
+	text-align: left;
+}
+
+.totals-table td {
+	padding: 3px 6px;
+}
+
+.totals-table td:last-child {
+	text-align: right;
+}
+
+.grand-total-row td {
+	font-weight: bold;
+	border-top: 1px solid #000;
+}
+
+.qr-code {
+	text-align: right;
+	margin-top: 10px;
+}
+
+.qr-code img {
+	width: 90px;
+	height: 90px;
+}

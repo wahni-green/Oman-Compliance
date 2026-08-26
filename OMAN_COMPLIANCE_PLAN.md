@@ -229,13 +229,13 @@ the legacy `oman_vat` app's report at `apps/oman_vat/oman_vat/oman_vat/report/om
 
 ## Phase 4 — Tax invoice compliance (print formats)
 
-- [ ] Full "Tax Invoice" print format — bilingual EN/AR, supplier name/address/TRN, all OTA-mandatory fields
+- [x] Full "Tax Invoice" print format — bilingual EN/AR, supplier name/address/TRN, all OTA-mandatory fields
       (findings §53 lists the legacy app's gaps here)
-- [ ] "Simplified Tax Invoice" print format, auto-selected when grand total < OMR 500 excl. VAT and the
+- [x] "Simplified Tax Invoice" print format, auto-selected when grand total < OMR 500 excl. VAT and the
       customer is non-taxable (findings §54 — legacy app has the format but no auto-selection logic)
-- [ ] QR code via `pyqrcode`, exposed through the `jinja.methods` hook, payload read from `e-Invoice Log` once
+- [x] QR code via `pyqrcode`, exposed through the `jinja.methods` hook, payload read from `e-Invoice Log` once
       Phase 5 exists (placeholder/manual QR acceptable until then if a standalone QR is needed sooner)
-- [ ] Tests: print-format rendering smoke tests, threshold-switch logic test
+- [x] Tests: print-format rendering smoke tests, threshold-switch logic test
 
 ---
 
@@ -713,3 +713,48 @@ Only relevant for sites that currently run `oman_vat` and need to move to this a
   - `bench migrate` (3 new custom fields via the bumped patch marker, 2 new doctypes, 2 new Script
     Reports, all idempotent) and `bench run-tests --app oman_compliance` (159/159 passing) confirmed.
     `ruff check`/`ruff format` clean on every new/changed file.
+- 2026-08-26 — Phase 4 complete: Tax invoice print formats. Key design decision, forced by a real
+  Frappe constraint discovered while reading `frappe/www/printview.py`: which Print Format a
+  request renders is resolved *before* the `before_print` doc_event ever runs, so there is no
+  supported hook to swap the selected Print Format record itself per-document. Built the
+  "auto-selection" the checklist calls for a different way instead:
+  - New read-only `is_simplified_tax_invoice` Check on Sales Invoice
+    (`overrides/sales_invoice.py::set_simplified_tax_invoice_flag`/`is_simplified_tax_invoice_candidate`,
+    mirroring `set_export_flag`'s shape exactly), computed from `base_net_total` vs. Oman VAT
+    Settings' `simplified_tax_invoice_threshold` (already shipped in Phase 1, default 500) and
+    whether the Customer has an `oman_trn` — "non-taxable customer" is read as "no TRN on file",
+    reusing the field this app already treats as the taxable/non-taxable signal everywhere else,
+    rather than adding a second, redundant flag. This is a suggested default only (OTA *permits*,
+    doesn't require, the simplified format under threshold), matching this app's existing stance on
+    other suggested-default flags (zone-based VAT Category, is_export).
+  - Two Print Format records: "Oman Tax Invoice" (`print_format/oman_tax_invoice/`) reads
+    `is_simplified_tax_invoice` and renders the full-or-simplified layout accordingly — this is the
+    actual auto-selection, internal to the one format a user would normally print — and a
+    standalone "Oman Simplified Tax Invoice" (`print_format/oman_simplified_tax_invoice/`) that
+    always renders the simplified layout regardless of the flag, for a workflow (e.g. a till) that
+    deliberately wants it every time. Both are plain Jinja `.html`/`.css` print formats (matching
+    the architecture doc's §1.7 plan and India Compliance's `e_invoice` folder structure), sharing
+    one macros partial (`print_format/_shared/tax_invoice_macros.html`, not a Print Format itself —
+    just an `{% import %}`-ed template file) for the supplier/customer blocks, item table, totals,
+    and QR code, so the two formats can't drift out of sync with each other.
+  - Simplified layout omits the customer block entirely (name/address/TRN) — a Simplified Tax
+    Invoice is for a non-taxable/B2C consumer, so the customer isn't a mandatory field on it the
+    way it is on the full layout.
+  - QR code: `utils/qr_code.py::get_tax_invoice_qr_code()`, wired via `jinja.methods` alongside the
+    existing `get_exchange_rate_disclosure`. Payload is deliberately plain labelled text (seller
+    name/TRN, invoice number/date, total, VAT amount), not a signed/TLV structure like ZATCA's —
+    OTA hasn't published a Fawtara QR spec yet (architecture doc §3 still open), so this is the
+    explicitly-sanctioned placeholder until Phase 5's `e-Invoice Log` exists to read a real payload
+    from. Returns `None` (print format hides the QR block) when the company has no TRN configured,
+    rather than rendering a QR with no TRN in it.
+  - **Tests**: 3 rendering smoke tests (`print_format/test_tax_invoice_print_formats.py`, using
+    `frappe.get_print()` against a real submitted Sales Invoice fixture — confirms "Oman Tax
+    Invoice" switches its own heading/layout above vs. below the threshold, and "Oman Simplified
+    Tax Invoice" always renders simplified regardless), 7 threshold-switch logic tests
+    (`overrides/test_sales_invoice.py`, frappe._dict mocks matching this app's existing style for
+    override-level tests) and 3 QR-code unit tests (`utils/test_qr_code.py`). New test helpers
+    `get_or_create_test_customer`'s existing use plus a new
+    `set_simplified_tax_invoice_threshold()` in `tests/__init__.py`, mirroring `set_vat_accounts()`.
+  - `bench migrate` (1 new custom field via the bumped patch marker `#9`, 2 new standard Print
+    Format records synced from disk, idempotent) and `bench run-tests --app oman_compliance`
+    confirmed all passing. `ruff check`/`ruff format` clean on every new/changed Python file.

@@ -78,7 +78,12 @@ doctype_js = {"Item Tax Template": "oman_compliance/client_scripts/item_tax_temp
 
 # add methods and filters to jinja environment
 jinja = {
-	"methods": ["oman_compliance.oman_compliance.utils.currency.get_exchange_rate_disclosure"],
+	"methods": [
+		"oman_compliance.oman_compliance.utils.currency.get_exchange_rate_disclosure",
+		"oman_compliance.oman_compliance.utils.qr_code.get_tax_invoice_qr_code",
+		"oman_compliance.oman_compliance.utils.tax_account.get_output_vat_amount",
+		"oman_compliance.oman_compliance.utils.tax_account.get_item_wise_vat_rates",
+	],
 }
 
 # Installation
