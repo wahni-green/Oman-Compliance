@@ -82,6 +82,7 @@ jinja = {
 		"oman_compliance.oman_compliance.utils.currency.get_exchange_rate_disclosure",
 		"oman_compliance.oman_compliance.utils.qr_code.get_tax_invoice_qr_code",
 		"oman_compliance.oman_compliance.utils.tax_account.get_output_vat_amount",
+		"oman_compliance.oman_compliance.utils.tax_account.get_item_wise_vat_rates",
 	],
 }
 

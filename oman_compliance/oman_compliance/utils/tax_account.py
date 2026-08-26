@@ -69,16 +69,41 @@ def get_output_vat_amount(doc) -> float:
 	)
 
 
+def get_item_wise_vat_rates(tax_rows, company: str | None) -> dict[str, float]:
+	"""Sums `item_wise_tax_detail` VAT *rates* (`detail_row[0]`) for tax rows posting to the
+	company's configured Output VAT Account, keyed by item_code — a Sales/Purchase Taxes and
+	Charges table can just as easily hold an unrelated charge (freight, discount, withholding, ...)
+	with its own nonzero item-wise rate, which must never be misread as VAT applied to that item.
+	If no Output VAT Account is configured for this company yet, nothing here can be identified as
+	VAT, so this returns no rates at all rather than guessing. Shared by
+	`overrides/sales_invoice.py`'s VAT-category-mismatch check and the Tax Invoice print formats'
+	per-item VAT rate display — previously two independent copies of this exact parse."""
+	rates: dict[str, float] = {}
+
+	for tax in tax_rows:
+		if not is_output_vat_account(tax.get("account_head"), company):
+			continue
+
+		detail = tax.get("item_wise_tax_detail")
+		if not detail:
+			continue
+
+		parsed = json.loads(detail) if isinstance(detail, str) else detail
+		for item_code, detail_row in parsed.items():
+			rates[item_code] = rates.get(item_code, 0) + detail_row[0]
+
+	return rates
+
+
 def get_item_wise_vat_amounts(tax_rows, company: str | None, is_matching_account) -> dict[str, float]:
 	"""Sums `item_wise_tax_detail` VAT *amounts* (`detail_row[1]`, already base/company-currency —
 	see OMAN_COMPLIANCE_PLAN.md's Phase 2/3 alignment note) for tax rows posting to whichever
 	account `is_matching_account` identifies (`is_output_vat_account` or `is_input_vat_account`),
-	keyed by item_code. Sibling to `overrides/sales_invoice.py::_get_item_wise_tax_rates`, which
-	reads `detail_row[0]` (the rate, for the VAT-category-mismatch check) instead of the amount —
-	kept separate rather than merged since the two calls read different halves of the same tuple
-	for different purposes, but factored out here so every `utils/vat_return` section function
-	shares one `item_wise_tax_detail` parse instead of five independent copies of this
-	currency-sensitive logic."""
+	keyed by item_code. Sibling to `get_item_wise_vat_rates` above, which reads `detail_row[0]`
+	(the rate) instead of the amount — kept separate rather than merged since the two calls read
+	different halves of the same tuple for different purposes, but factored out here so every
+	`utils/vat_return` section function shares one `item_wise_tax_detail` parse instead of five
+	independent copies of this currency-sensitive logic."""
 	amounts: dict[str, float] = {}
 
 	for tax in tax_rows:

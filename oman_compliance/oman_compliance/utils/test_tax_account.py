@@ -1,8 +1,11 @@
+import json
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from oman_compliance.oman_compliance.utils.tax_account import (
 	get_input_vat_account,
+	get_item_wise_vat_rates,
 	get_output_vat_account,
 	get_output_vat_amount,
 	is_input_vat_account,
@@ -87,6 +90,54 @@ class TestGetOutputVatAmount(FrappeTestCase):
 		)
 
 		self.assertEqual(get_output_vat_amount(doc), 0)
+
+
+class TestGetItemWiseVatRates(FrappeTestCase):
+	def setUp(self):
+		self.company = get_oman_test_company()
+		self.vat_account, _ = get_test_tax_account()
+		set_vat_accounts(self.company, output_account=self.vat_account)
+
+	def test_returns_the_rate_from_the_output_vat_account_row(self):
+		tax_rows = [
+			frappe._dict(
+				account_head=self.vat_account,
+				item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+			)
+		]
+
+		self.assertEqual(get_item_wise_vat_rates(tax_rows, self.company), {"_Test Item": 5.0})
+
+	def test_ignores_a_row_on_an_unrelated_account(self):
+		# The exact bug the item-table's VAT % column would otherwise reproduce: a freight row's
+		# own item-wise rate must never be shown as if it were the item's VAT rate.
+		tax_rows = [
+			frappe._dict(
+				account_head="_Test Freight Account",
+				item_wise_tax_detail=json.dumps({"_Test Item": [10.0, 5.0]}),
+			)
+		]
+
+		self.assertEqual(get_item_wise_vat_rates(tax_rows, self.company), {})
+
+	def test_returns_empty_dict_when_output_vat_account_is_unconfigured(self):
+		other_company = frappe.get_doc(
+			{
+				"doctype": "Company",
+				"company_name": "_Test Unconfigured VAT Rates Company",
+				"abbr": "TUVRC",
+				"default_currency": "OMR",
+				"country": "Oman",
+			}
+		).insert(ignore_permissions=True)
+		tax_rows = [
+			frappe._dict(
+				account_head=self.vat_account,
+				item_wise_tax_detail=json.dumps({"_Test Item": [5.0, 2.5]}),
+			)
+		]
+
+		self.assertEqual(get_item_wise_vat_rates(tax_rows, other_company.name), {})
 
 
 class TestInputVatAccount(FrappeTestCase):

@@ -1,5 +1,3 @@
-import json
-
 import frappe
 from frappe import _
 from frappe.utils import flt
@@ -7,7 +5,7 @@ from frappe.utils import flt
 from oman_compliance.oman_compliance.constants import NO_TAX_VAT_CATEGORIES
 from oman_compliance.oman_compliance.overrides.transaction import set_vat_category_defaults
 from oman_compliance.oman_compliance.utils.company import is_oman_company
-from oman_compliance.oman_compliance.utils.tax_account import is_output_vat_account
+from oman_compliance.oman_compliance.utils.tax_account import get_item_wise_vat_rates
 from oman_compliance.oman_compliance.utils.vat_category import get_item_tax_template_category
 
 
@@ -124,7 +122,7 @@ def validate_vat_category_tax_consistency(doc):
 	many ordinary tax templates and isn't flagged. Reads the rate out of `item_wise_tax_detail`
 	rather than an amount, so this is currency-agnostic by construction (percentages, not money) —
 	no base_*/document-currency confusion possible here (findings §58)."""
-	charged_rates = _get_item_wise_tax_rates(doc.get("taxes") or [], doc.get("company"))
+	charged_rates = get_item_wise_vat_rates(doc.get("taxes") or [], doc.get("company"))
 	categories_by_item_code = _get_vat_categories_by_item_code(doc.get("items") or [])
 
 	for row in doc.get("items", []):
@@ -207,27 +205,3 @@ def _get_vat_categories_by_item_code(item_rows) -> dict:
 		categories.setdefault(row.item_code, set()).add(row.get("vat_category"))
 
 	return categories
-
-
-def _get_item_wise_tax_rates(tax_rows, company) -> dict:
-	"""Only aggregates rows posting to the company's configured Output VAT Account (Oman VAT
-	Settings) — a Sales Taxes and Charges table can just as easily hold an unrelated charge
-	(freight, discount, withholding, ...) with its own nonzero item-wise rate, which must never be
-	misread as VAT applied to that item. If no Output VAT Account is configured for this company
-	yet, nothing here can be identified as VAT, so this returns no rates at all rather than
-	guessing — the mismatch check below simply doesn't fire until it's configured."""
-	rates: dict[str, float] = {}
-
-	for tax in tax_rows:
-		if not is_output_vat_account(tax.get("account_head"), company):
-			continue
-
-		detail = tax.get("item_wise_tax_detail")
-		if not detail:
-			continue
-
-		parsed = json.loads(detail) if isinstance(detail, str) else detail
-		for item_code, detail_row in parsed.items():
-			rates[item_code] = rates.get(item_code, 0) + detail_row[0]
-
-	return rates

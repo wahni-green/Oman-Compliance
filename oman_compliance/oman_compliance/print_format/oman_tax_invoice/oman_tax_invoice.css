@@ -42,6 +42,13 @@
 	margin: 2px 0;
 }
 
+.missing-mandatory-field {
+	color: #b00020;
+	font-weight: bold;
+	border: 1px solid #b00020;
+	padding: 2px 4px;
+}
+
 .items-table,
 .totals-table {
 	width: 100%;
