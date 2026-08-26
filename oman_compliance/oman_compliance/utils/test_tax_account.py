@@ -73,7 +73,11 @@ class TestGetOutputVatAmount(FrappeTestCase):
 
 		self.assertEqual(get_output_vat_amount(doc), 0)
 
-	def test_returns_zero_when_output_vat_account_is_unconfigured(self):
+	def test_returns_none_when_output_vat_account_is_unconfigured(self):
+		# Not 0: a company that hasn't configured an Output VAT Account yet might still have real
+		# VAT charged on this invoice that simply can't be identified — collapsing that into the
+		# same "0" a genuinely all-zero-rated invoice would show is misleading on a printed
+		# document, so callers must be able to tell the two cases apart.
 		other_company = frappe.get_doc(
 			{
 				"doctype": "Company",
@@ -89,7 +93,7 @@ class TestGetOutputVatAmount(FrappeTestCase):
 			taxes=[frappe._dict(account_head=self.vat_account, tax_amount=5)],
 		)
 
-		self.assertEqual(get_output_vat_amount(doc), 0)
+		self.assertIsNone(get_output_vat_amount(doc))
 
 
 class TestGetItemWiseVatRates(FrappeTestCase):

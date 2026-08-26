@@ -22,6 +22,19 @@ def get_tax_invoice_qr_code(doc) -> str | None:
 		return None
 
 	currency = doc.get("currency")
+	# Not doc.get("total_taxes_and_charges"): that sums every Taxes and Charges row (freight,
+	# discount, withholding, ...), not just VAT — get_output_vat_amount() only sums rows posted to
+	# the company's configured Output VAT Account. It returns None (not 0) when that account isn't
+	# configured, which must NOT be encoded as "0" here — a real VAT charge that just couldn't be
+	# identified would silently read as "no VAT" on a scanned QR code.
+	output_vat_amount = get_output_vat_amount(doc)
+	vat_line = (
+		"VAT: not available (Output VAT Account not configured)"
+		if output_vat_amount is None
+		# fmt_money, not a fixed round(): OMR is a 3-decimal currency (baisa), not 2 like most —
+		# the correct precision depends on which currency this actually is.
+		else f"VAT: {fmt_money(output_vat_amount, currency=currency)}"
+	)
 	payload = "\n".join(
 		[
 			f"Seller: {company}",
@@ -29,12 +42,7 @@ def get_tax_invoice_qr_code(doc) -> str | None:
 			f"Invoice: {doc.get('name') or ''}",
 			f"Date: {doc.get('posting_date') or ''}",
 			f"Total: {doc.get('grand_total') or 0} {currency or ''}",
-			# Not doc.get("total_taxes_and_charges"): that sums every Taxes and Charges row
-			# (freight, discount, withholding, ...), not just VAT — get_output_vat_amount() only
-			# sums rows posted to the company's configured Output VAT Account. fmt_money (not a
-			# fixed round()) since OMR is a 3-decimal currency (baisa), not 2 like most — the
-			# correct precision depends on which currency this actually is.
-			f"VAT: {fmt_money(get_output_vat_amount(doc), currency=currency)}",
+			vat_line,
 		]
 	)
 

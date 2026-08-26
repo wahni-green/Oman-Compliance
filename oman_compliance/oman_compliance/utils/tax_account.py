@@ -53,15 +53,25 @@ def is_input_vat_account(account_head: str | None, company: str | None) -> bool:
 	return account_head == get_input_vat_account(company)
 
 
-def get_output_vat_amount(doc) -> float:
+def get_output_vat_amount(doc) -> float | None:
 	"""Sum of only the Taxes and Charges rows posted to the company's configured Output VAT
 	Account, in document currency — matching how net_total/grand_total are already shown on the
 	printed invoice. `total_taxes_and_charges` (a Sales Invoice's total of *every* charge row) is
 	the wrong figure to label "VAT" on a document that also carries freight, a discount, a
 	withholding deduction, or another non-VAT charge — exposed via `jinja.methods` for the Tax
 	Invoice print formats, which had exactly this bug (Greptile review on the PR that introduced
-	them)."""
+	them).
+
+	Returns None — not 0 — when the company has no Output VAT Account configured at all: those are
+	two different facts, and collapsing them into the same "0" a genuinely all-zero-rated invoice
+	would also show is itself misleading on a legal document (a second Greptile review round on
+	that same PR: a company with real VAT charged but no Output VAT Account configured yet would
+	otherwise print/encode "0" VAT, understating what's actually owed). Callers must render this
+	distinctly (e.g. a configuration warning), not silently substitute 0."""
 	company = doc.get("company")
+	if not get_output_vat_account(company):
+		return None
+
 	return sum(
 		flt(tax.get("tax_amount"))
 		for tax in doc.get("taxes") or []

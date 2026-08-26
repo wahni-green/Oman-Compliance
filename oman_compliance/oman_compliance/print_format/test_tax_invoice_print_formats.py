@@ -77,3 +77,32 @@ class TestTaxInvoicePrintFormats(FrappeTestCase):
 		html = frappe.get_print("Sales Invoice", invoice.name, print_format="Oman Tax Invoice")
 
 		self.assertIn("5%", html)
+
+	def test_missing_output_vat_account_shows_a_visible_warning_instead_of_zero(self):
+		# Explicitly unconfigured rather than relying on setUp() never having called
+		# set_vat_accounts: FrappeTestCase only rolls back once per test *class*, so a sibling test
+		# method in this same class that configures self.company's vat_accounts would otherwise
+		# leak into this one depending on alphabetical execution order (this app's own established
+		# gotcha — see tests/__init__.py's docstrings on why several fixture helpers work around
+		# exactly this). Printing "0.000 OMR" as VAT here would be actively misleading if this
+		# invoice genuinely charged VAT that just couldn't be identified (Greptile review).
+		settings = frappe.get_single("Oman VAT Settings")
+		settings.vat_accounts = [row for row in settings.vat_accounts if row.company != self.company]
+		settings.save(ignore_permissions=True)
+
+		invoice = create_submitted_sales_invoice(self.company, net_amount=1000)
+
+		html = frappe.get_print("Sales Invoice", invoice.name, print_format="Oman Tax Invoice")
+
+		self.assertIn("Output VAT Account not configured", html)
+
+	def test_configured_output_vat_account_shows_the_actual_amount(self):
+		output_account, _ = get_oman_test_vat_accounts(self.company)
+		set_vat_accounts(self.company, output_account=output_account)
+		invoice = create_submitted_sales_invoice(
+			self.company, net_amount=1000, output_vat_account=output_account, rate=5
+		)
+
+		html = frappe.get_print("Sales Invoice", invoice.name, print_format="Oman Tax Invoice")
+
+		self.assertNotIn("Output VAT Account not configured", html)

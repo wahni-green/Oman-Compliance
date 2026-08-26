@@ -90,11 +90,21 @@
 			(freight, discount, withholding, ...), not just VAT, and would mislabel a mixed-charge
 			invoice's non-VAT charges as VAT. get_output_vat_amount() only sums rows posted to the
 			company's configured Output VAT Account, in document currency (matching how Net
-			Total/Grand Total are already shown here).
+			Total/Grand Total are already shown here). It returns None, not 0, when the company has
+			no Output VAT Account configured — must render as an explicit warning here, since
+			silently printing "0.000" as VAT on a legal document is misleading if this invoice
+			actually charged VAT that just couldn't be identified (Greptile review).
 		#}
+		{% set output_vat_amount = get_output_vat_amount(doc) %}
 		<tr>
 			<td>{{ _("Total VAT") }} / <span lang="ar">إجمالي الضريبة</span></td>
-			<td>{{ frappe.utils.fmt_money(get_output_vat_amount(doc), currency=doc.currency) }}</td>
+			<td>
+				{% if output_vat_amount is none %}
+					<span class="missing-mandatory-field">{{ _("Output VAT Account not configured for this Company in Oman VAT Settings") }}</span>
+				{% else %}
+					{{ frappe.utils.fmt_money(output_vat_amount, currency=doc.currency) }}
+				{% endif %}
+			</td>
 		</tr>
 		<tr class="grand-total-row">
 			<td>{{ _("Grand Total") }} / <span lang="ar">الإجمالي الكلي</span></td>
