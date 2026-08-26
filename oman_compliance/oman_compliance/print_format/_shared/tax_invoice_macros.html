@@ -59,9 +59,16 @@
 			<td>{{ _("Net Total") }} / <span lang="ar">الإجمالي قبل الضريبة</span></td>
 			<td>{{ doc.get_formatted("net_total") }}</td>
 		</tr>
+		{#
+			Deliberately not doc.total_taxes_and_charges: that sums EVERY Taxes and Charges row
+			(freight, discount, withholding, ...), not just VAT, and would mislabel a mixed-charge
+			invoice's non-VAT charges as VAT. get_output_vat_amount() only sums rows posted to the
+			company's configured Output VAT Account, in document currency (matching how Net
+			Total/Grand Total are already shown here).
+		#}
 		<tr>
 			<td>{{ _("Total VAT") }} / <span lang="ar">إجمالي الضريبة</span></td>
-			<td>{{ doc.get_formatted("total_taxes_and_charges") }}</td>
+			<td>{{ frappe.utils.fmt_money(get_output_vat_amount(doc), currency=doc.currency) }}</td>
 		</tr>
 		<tr class="grand-total-row">
 			<td>{{ _("Grand Total") }} / <span lang="ar">الإجمالي الكلي</span></td>

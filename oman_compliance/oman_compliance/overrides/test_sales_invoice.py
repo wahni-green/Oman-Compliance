@@ -230,6 +230,25 @@ class TestSetSimplifiedTaxInvoiceFlag(FrappeTestCase):
 
 		self.assertFalse(doc.is_simplified_tax_invoice)
 
+	def test_company_currency_mismatched_with_settings_currency_is_not_simplified(self):
+		# Oman VAT Settings' threshold is always OMR (settings_currency); comparing base_net_total
+		# against it is only meaningful when the Company's own base currency is also OMR. A company
+		# on a different base currency has no confirmed conversion rate to apply here, so this must
+		# never guess by comparing mismatched currencies as if they were the same number.
+		frappe.db.set_value("Company", self.oman_company, "default_currency", "USD")
+		self.addCleanup(frappe.db.set_value, "Company", self.oman_company, "default_currency", "OMR")
+
+		doc = frappe._dict(
+			company=self.oman_company,
+			customer=self.non_taxable_customer,
+			base_net_total=100,
+			is_simplified_tax_invoice=0,
+		)
+
+		set_simplified_tax_invoice_flag(doc)
+
+		self.assertFalse(doc.is_simplified_tax_invoice)
+
 	def test_large_return_is_not_simplified_despite_negative_net_total(self):
 		# A Sales Return/credit note carries a negative base_net_total. The raw signed value would
 		# never be >= a positive threshold, so a large-value return could otherwise bypass this

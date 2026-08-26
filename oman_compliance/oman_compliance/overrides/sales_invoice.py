@@ -88,9 +88,26 @@ def is_simplified_tax_invoice_candidate(doc) -> bool:
 	takes effect without a code change. Compares against base_net_total (company currency, excl.
 	VAT), matching the threshold field's own "Grand total (excl. VAT)" description exactly. Uses
 	the absolute value: a Sales Return/credit note has a negative base_net_total, and comparing the
-	raw signed figure would let a large-value return through this check regardless of magnitude."""
-	threshold = frappe.get_cached_doc("Oman VAT Settings").simplified_tax_invoice_threshold
-	if not threshold or abs(flt(doc.get("base_net_total"))) >= flt(threshold):
+	raw signed figure would let a large-value return through this check regardless of magnitude.
+
+	Oman VAT Settings' threshold fields are always denominated in OMR (settings_currency), not
+	whatever currency this particular comparison happens to be in — comparing base_net_total
+	against it is only numerically meaningful when the Company's own base currency is also OMR
+	(the normal case: Oman VAT law requires an Oman company's accounting records to be kept in
+	OMR). For the rare company whose base currency isn't OMR, there's no confirmed conversion rate
+	between the two to safely apply here, so this returns False rather than comparing mismatched
+	currencies as if they were the same number."""
+	settings = frappe.get_cached_doc("Oman VAT Settings")
+	threshold = settings.simplified_tax_invoice_threshold
+	if not threshold:
+		return False
+
+	company = doc.get("company")
+	company_currency = frappe.get_cached_value("Company", company, "default_currency") if company else None
+	if company_currency != settings.settings_currency:
+		return False
+
+	if abs(flt(doc.get("base_net_total"))) >= flt(threshold):
 		return False
 
 	customer = doc.get("customer")

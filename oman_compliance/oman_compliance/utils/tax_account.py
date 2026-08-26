@@ -1,6 +1,7 @@
 import json
 
 import frappe
+from frappe.utils import flt
 
 
 def get_output_vat_account(company: str | None) -> str | None:
@@ -50,6 +51,22 @@ def is_input_vat_account(account_head: str | None, company: str | None) -> bool:
 		return False
 
 	return account_head == get_input_vat_account(company)
+
+
+def get_output_vat_amount(doc) -> float:
+	"""Sum of only the Taxes and Charges rows posted to the company's configured Output VAT
+	Account, in document currency — matching how net_total/grand_total are already shown on the
+	printed invoice. `total_taxes_and_charges` (a Sales Invoice's total of *every* charge row) is
+	the wrong figure to label "VAT" on a document that also carries freight, a discount, a
+	withholding deduction, or another non-VAT charge — exposed via `jinja.methods` for the Tax
+	Invoice print formats, which had exactly this bug (Greptile review on the PR that introduced
+	them)."""
+	company = doc.get("company")
+	return sum(
+		flt(tax.get("tax_amount"))
+		for tax in doc.get("taxes") or []
+		if is_output_vat_account(tax.get("account_head"), company)
+	)
 
 
 def get_item_wise_vat_amounts(tax_rows, company: str | None, is_matching_account) -> dict[str, float]:

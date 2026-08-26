@@ -1,5 +1,8 @@
 import frappe
 import pyqrcode
+from frappe.utils import fmt_money
+
+from oman_compliance.oman_compliance.utils.tax_account import get_output_vat_amount
 
 
 def get_tax_invoice_qr_code(doc) -> str | None:
@@ -18,14 +21,20 @@ def get_tax_invoice_qr_code(doc) -> str | None:
 	if not company_trn:
 		return None
 
+	currency = doc.get("currency")
 	payload = "\n".join(
 		[
 			f"Seller: {company}",
 			f"TRN: {company_trn}",
 			f"Invoice: {doc.get('name') or ''}",
 			f"Date: {doc.get('posting_date') or ''}",
-			f"Total: {doc.get('grand_total') or 0} {doc.get('currency') or ''}",
-			f"VAT: {doc.get('total_taxes_and_charges') or 0} {doc.get('currency') or ''}",
+			f"Total: {doc.get('grand_total') or 0} {currency or ''}",
+			# Not doc.get("total_taxes_and_charges"): that sums every Taxes and Charges row
+			# (freight, discount, withholding, ...), not just VAT — get_output_vat_amount() only
+			# sums rows posted to the company's configured Output VAT Account. fmt_money (not a
+			# fixed round()) since OMR is a 3-decimal currency (baisa), not 2 like most — the
+			# correct precision depends on which currency this actually is.
+			f"VAT: {fmt_money(get_output_vat_amount(doc), currency=currency)}",
 		]
 	)
 

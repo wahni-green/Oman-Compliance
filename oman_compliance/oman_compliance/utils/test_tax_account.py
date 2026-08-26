@@ -4,6 +4,7 @@ from frappe.tests.utils import FrappeTestCase
 from oman_compliance.oman_compliance.utils.tax_account import (
 	get_input_vat_account,
 	get_output_vat_account,
+	get_output_vat_amount,
 	is_input_vat_account,
 	is_output_vat_account,
 )
@@ -43,6 +44,49 @@ class TestOutputVatAccount(FrappeTestCase):
 
 	def test_is_output_vat_account_rejects_blank_account_head(self):
 		self.assertFalse(is_output_vat_account(None, self.company))
+
+
+class TestGetOutputVatAmount(FrappeTestCase):
+	def setUp(self):
+		self.company = get_oman_test_company()
+		self.vat_account, _ = get_test_tax_account()
+		set_vat_accounts(self.company, output_account=self.vat_account)
+
+	def test_sums_only_rows_on_the_output_vat_account(self):
+		# The bug this guards: total_taxes_and_charges would sum every row below (VAT + freight),
+		# mislabelling the freight charge as VAT.
+		doc = frappe._dict(
+			company=self.company,
+			taxes=[
+				frappe._dict(account_head=self.vat_account, tax_amount=5),
+				frappe._dict(account_head="_Test Freight Account", tax_amount=20),
+			],
+		)
+
+		self.assertEqual(get_output_vat_amount(doc), 5)
+
+	def test_returns_zero_when_no_taxes(self):
+		doc = frappe._dict(company=self.company, taxes=[])
+
+		self.assertEqual(get_output_vat_amount(doc), 0)
+
+	def test_returns_zero_when_output_vat_account_is_unconfigured(self):
+		other_company = frappe.get_doc(
+			{
+				"doctype": "Company",
+				"company_name": "_Test Unconfigured Output VAT Amount Company",
+				"abbr": "TUOVAC",
+				"default_currency": "OMR",
+				"country": "Oman",
+			}
+		).insert(ignore_permissions=True)
+
+		doc = frappe._dict(
+			company=other_company.name,
+			taxes=[frappe._dict(account_head=self.vat_account, tax_amount=5)],
+		)
+
+		self.assertEqual(get_output_vat_amount(doc), 0)
 
 
 class TestInputVatAccount(FrappeTestCase):
