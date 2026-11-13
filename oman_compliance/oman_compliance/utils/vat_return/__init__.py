@@ -24,6 +24,24 @@ _PARENT_FIELDS = {
 }
 
 
+# Document-level details carried on every row so a register can list transactions, not just totals.
+# `tax_id` is the party's TRN as captured on the invoice itself.
+_DETAIL_FIELDS = {
+	"Sales Invoice": ("posting_date", "customer", "customer_name", "currency", "conversion_rate", "tax_id", "remarks"),
+	"Purchase Invoice": (
+		"posting_date",
+		"supplier",
+		"supplier_name",
+		"currency",
+		"conversion_rate",
+		"tax_id",
+		"remarks",
+		"bill_no",
+		"bill_date",
+	),
+}
+
+
 def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 	"""One dict per submitted Sales/Purchase Invoice Item row in [from_date, to_date] for
 	`company`, joined with its parent's classification flags and this app's Output/Input VAT
@@ -56,14 +74,14 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 			"posting_date": ["between", [from_date, to_date]],
 			"docstatus": 1,
 		},
-		fields=["name", "is_return", *_PARENT_FIELDS[doctype]],
+		fields=["name", "is_return", *_PARENT_FIELDS[doctype], *_DETAIL_FIELDS[doctype]],
 	)
 	if not invoices:
 		return []
 
 	invoices_by_name = {invoice.name: invoice for invoice in invoices}
 
-	item_fields = ["parent", "item_code", "vat_category", "item_tax_template", "base_net_amount"]
+	item_fields = ["parent", "item_code", "item_name", "vat_category", "item_tax_template", "base_net_amount"]
 	if doctype == "Purchase Invoice":
 		item_fields.append("is_fixed_asset")
 
@@ -154,7 +172,10 @@ def get_invoice_rows(doctype: str, company: str, from_date, to_date) -> list:
 		share = (item.base_net_amount or 0) / total_net_amount if total_net_amount else 0
 
 		row = frappe._dict(item)
+		row.invoice = item.parent
 		row.is_return = bool(invoice.is_return)
+		for field in _DETAIL_FIELDS[doctype]:
+			row[field] = invoice.get(field)
 		row.output_vat_amount = output_vat_by_parent.get(item.parent, {}).get(item.item_code, 0) * share
 		row.input_vat_amount = input_vat_by_parent.get(item.parent, {}).get(item.item_code, 0) * share
 		for field in _PARENT_FIELDS[doctype]:
