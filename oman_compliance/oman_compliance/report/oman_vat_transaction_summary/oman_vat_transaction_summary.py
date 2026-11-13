@@ -38,11 +38,29 @@ def get_columns() -> list[dict]:
 		{"label": _("Party"), "fieldname": "party", "fieldtype": "Data", "width": 100},
 		{"label": _("Party Name"), "fieldname": "party_name", "fieldtype": "Data", "width": 200},
 		{"label": _("Party TRN"), "fieldname": "party_trn", "fieldtype": "Data", "width": 120},
-		{"label": _("Country"), "fieldname": "party_country", "fieldtype": "Link", "options": "Country", "width": 100},
+		{
+			"label": _("Country"),
+			"fieldname": "party_country",
+			"fieldtype": "Link",
+			"options": "Country",
+			"width": 100,
+		},
 		{"label": _("Bill No"), "fieldname": "bill_no", "fieldtype": "Data", "width": 130},
 		{"label": _("Bill Date"), "fieldname": "bill_date", "fieldtype": "Date", "width": 95},
-		{"label": _("Currency"), "fieldname": "currency", "fieldtype": "Link", "options": "Currency", "width": 70},
-		{"label": _("Exch. Rate"), "fieldname": "conversion_rate", "fieldtype": "Float", "precision": 6, "width": 90},
+		{
+			"label": _("Currency"),
+			"fieldname": "currency",
+			"fieldtype": "Link",
+			"options": "Currency",
+			"width": 70,
+		},
+		{
+			"label": _("Exch. Rate"),
+			"fieldname": "conversion_rate",
+			"fieldtype": "Float",
+			"precision": 6,
+			"width": 90,
+		},
 		{"label": _("Item"), "fieldname": "item_code", "fieldtype": "Link", "options": "Item", "width": 120},
 		{"label": _("Item Name"), "fieldname": "item_name", "fieldtype": "Data", "width": 180},
 		{"label": _("VAT Category"), "fieldname": "vat_category", "fieldtype": "Data", "width": 110},
@@ -74,7 +92,12 @@ def get_data(filters) -> list[dict]:
 
 	return sorted(
 		rows,
-		key=lambda r: (r["transaction_type"] != "Purchase", r["box_code"], str(r["posting_date"]), r["invoice"]),
+		key=lambda r: (
+			r["transaction_type"] != "Purchase",
+			r["box_code"],
+			str(r["posting_date"]),
+			r["invoice"],
+		),
 	)
 
 

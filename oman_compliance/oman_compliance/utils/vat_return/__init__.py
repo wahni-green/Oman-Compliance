@@ -27,7 +27,15 @@ _PARENT_FIELDS = {
 # Document-level details carried on every row so a register can list transactions, not just totals.
 # `tax_id` is the party's TRN as captured on the invoice itself.
 _DETAIL_FIELDS = {
-	"Sales Invoice": ("posting_date", "customer", "customer_name", "currency", "conversion_rate", "tax_id", "remarks"),
+	"Sales Invoice": (
+		"posting_date",
+		"customer",
+		"customer_name",
+		"currency",
+		"conversion_rate",
+		"tax_id",
+		"remarks",
+	),
 	"Purchase Invoice": (
 		"posting_date",
 		"supplier",
